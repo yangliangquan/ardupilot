@@ -7,6 +7,7 @@
 
 #include "hal.h"
 #include "ch32_compat.h"
+#include <stdarg.h>
 
 
 #ifdef __cplusplus
@@ -101,6 +102,8 @@ bool stm32_rand_generate_blocking(unsigned char* output, unsigned int sz, uint32
 unsigned int stm32_rand_generate_nonblocking(unsigned char* output, unsigned int sz);
 #endif
 extern uint32_t chibios_rand_generate(void);
+
+extern int (*vprintf_console_hook)(const char *fmt, va_list arg);
 
 #if CH_DBG_ENABLE_STACK_CHECK == TRUE
 void show_stack_usage(void);

@@ -432,7 +432,9 @@ size_t mem_available(void)
     chHeapStatus(NULL, &totalp, NULL);
 
     // we also need to add in memory that is not yet allocated to the heap
-    totalp += chCoreGetStatusX();
+    memory_area_t core_map;
+    chCoreGetStatusX(&core_map);
+    totalp += core_map.size;
 
     // now our own heaps
     for (i=1; i<NUM_MEMORY_REGIONS; i++) {
@@ -584,7 +586,7 @@ void __wrap__free_r(void *rptr, void *ptr)
     return free(ptr);
 }
 
-#if HAL_USE_FATFS
+#if 0 /* ff_memalloc/ff_memfree provided by ChibiOS fatfs_syscall.o */
 /*
   allocation functions for FATFS
  */
@@ -614,7 +616,7 @@ void ff_memfree(void* mblock)
 {
     free(mblock);
 }
-#endif // HAL_USE_FATFS
+#endif /* ff_memalloc/ff_memfree */
 
 /*
   return true if a memory region is safe for a DMA operation

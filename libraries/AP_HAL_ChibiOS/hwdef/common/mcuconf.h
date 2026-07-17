@@ -65,6 +65,9 @@
 #include "stm32l4+_mcuconf.h"
 #elif defined(STM32L4)
 #include "stm32l4_mcuconf.h"
+#elif defined(WCH)
+/* CH32H417: board-specific mcuconf.h at hwdef/CCH-v6c/mcuconf.h provides
+   all CH32-specific configuration. No common mcuconf needed. */
 #else
 #error "Unsupported MCU"
 #endif

@@ -428,7 +428,9 @@ void Scheduler::_monitor_thread(void *arg)
         }
 
         // if running memory guard then check all allocations
+#ifndef WCH
         malloc_check(nullptr);
+#endif
 
         uint32_t now = AP_HAL::millis();
         uint32_t loop_delay = now - sched->last_watchdog_pat_ms;
@@ -858,7 +860,11 @@ void Scheduler::try_force_mutex(void)
     strncpy(thdname, wtmtx->owner->name, sizeof(thdname)-1);
 
     // we will force release the lock
+#if !defined(WCH)
     chMtxForceReleaseS(wtmtx);
+#else
+    wtmtx->owner = NULL;
+#endif
     chSysUnlock();
 
     // log a DLCK message with information on the deadlock we have avoided

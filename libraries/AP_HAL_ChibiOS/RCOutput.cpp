@@ -35,8 +35,13 @@
 #include "GPIO.h"
 #include "Util.h"
 #include "Scheduler.h"
+#ifdef WCH
+#include "ch32_util.h"
+#include "hwdef/common/watchdog.h"
+#else
 #include "hwdef/common/stm32_util.h"
 #include "hwdef/common/watchdog.h"
+#endif
 #include <AP_InternalError/AP_InternalError.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
 #include <AP_Common/ExpandingString.h>
@@ -395,6 +400,7 @@ void RCOutput::set_freq_group(pwm_group &group)
     // down to 1MHz until it is OK with the hardware timer we
     // are using. If we don't do this we'll hit an assert in
     // the ChibiOS PWM driver on some timers
+#ifndef WCH
     PWMDriver *pwmp = group.pwm_drv;
     uint32_t psc = (pwmp->clock / pwmp->config->frequency) - 1;
     while ((psc > 0xFFFF || ((psc + 1) * pwmp->config->frequency) != pwmp->clock) &&
@@ -402,6 +408,9 @@ void RCOutput::set_freq_group(pwm_group &group)
         group.pwm_cfg.frequency /= 2;
         psc = (pwmp->clock / pwmp->config->frequency) - 1;
     }
+#else
+    (void)group;
+#endif
 
     if (group.current_mode == MODE_PWM_ONESHOT ||
         group.current_mode == MODE_PWM_ONESHOT125) {
@@ -1026,7 +1035,11 @@ bool RCOutput::setup_group_DMA(pwm_group &group, uint32_t bitrate, uint32_t bit_
     }
     const uint32_t target_frequency = bitrate * bit_width;
 
-    const uint32_t prescaler = calculate_bitrate_prescaler(group.pwm_drv->clock, target_frequency, at_least_freq);
+#ifndef WCH
+    const uint32_t prescaler = calculate_bitrate_prescaler(pwm_driver_clock(group.pwm_drv), target_frequency, at_least_freq);
+#else
+    const uint32_t prescaler = calculate_bitrate_prescaler(STM32_PCLK2, target_frequency, at_least_freq);
+#endif
     if (prescaler == 0 || prescaler > 0x8000) {
 #if AP_HAL_SHARED_DMA_ENABLED
         group.dma_handle->unlock();
@@ -1035,7 +1048,7 @@ bool RCOutput::setup_group_DMA(pwm_group &group, uint32_t bitrate, uint32_t bit_
         return false;
     }
 
-    const uint32_t freq = group.pwm_drv->clock / (prescaler + 1);
+    const uint32_t freq = STM32_PCLK2 / (prescaler + 1);
     // PSC is calculated by ChibiOS as (pwm_drv.clock / pwm_cfg.frequency) - 1;
     group.pwm_cfg.frequency = freq;
     group.pwm_cfg.dier = TIM_DIER_UDE;
@@ -1044,10 +1057,10 @@ bool RCOutput::setup_group_DMA(pwm_group &group, uint32_t bitrate, uint32_t bit_
     // ARR is calculated by ChibiOS as pwm_cfg.period -1
     group.pwm_cfg.period = bit_width * group.bit_width_mul;
 #if 0
-    hal.console->printf("CLOCK=%u BW=%u FREQ=%u BR=%u MUL=%u PRE=%u\n", unsigned(group.pwm_drv->clock), unsigned(bit_width), unsigned(group.pwm_cfg.frequency),
+    hal.console->printf("CLOCK=%u BW=%u FREQ=%u BR=%u MUL=%u PRE=%u\n", unsigned(pwm_driver_clock(group.pwm_drv)), unsigned(bit_width), unsigned(group.pwm_cfg.frequency),
         unsigned(bitrate), unsigned(group.bit_width_mul), unsigned(prescaler));
     static char clock_setup[64];
-    hal.util->snprintf(clock_setup, 64, "CLOCK=%u BW=%u FREQ=%u BR=%u MUL=%u PRE=%u\n", unsigned(group.pwm_drv->clock), unsigned(bit_width), unsigned(group.pwm_cfg.frequency),
+    hal.util->snprintf(clock_setup, 64, "CLOCK=%u BW=%u FREQ=%u BR=%u MUL=%u PRE=%u\n", unsigned(pwm_driver_clock(group.pwm_drv)), unsigned(bit_width), unsigned(group.pwm_cfg.frequency),
         unsigned(bitrate), unsigned(group.bit_width_mul), unsigned(prescaler));
 #endif
     for (uint8_t j=0; j<4; j++) {
@@ -1424,7 +1437,11 @@ void RCOutput::trigger_groups()
             const uint8_t i = &group - pwm_group_list;
             if (trigger_groupmask & (1U<<i)) {
                 // this triggers pulse output for a channel group
+#if defined(WCH)
+                group.pwm_drv->tim->SWEVGR = STM32_TIM_EGR_UG;
+#else
                 group.pwm_drv->tim->EGR = STM32_TIM_EGR_UG;
+#endif
             }
         }
     }
@@ -1935,7 +1952,16 @@ void RCOutput::dma_cancel(pwm_group& group)
     // since we are cancelling early they need to be reset to avoid infinite pulses
     for (uint8_t i = 0; i < 4; i++) {
         if (group.chan[i] != CHAN_DISABLED) {
+#if defined(WCH)
+            switch (i) {
+            case 0: group.pwm_drv->tim->CH1CVR = 0; break;
+            case 1: group.pwm_drv->tim->CH2CVR = 0; break;
+            case 2: group.pwm_drv->tim->CH3CVR = 0; break;
+            case 3: group.pwm_drv->tim->CH4CVR = 0; break;
+            }
+#else
             group.pwm_drv->tim->CCR[i] = 0;
+#endif
         }
     }
     chVTResetI(&group.dma_timeout);
@@ -2863,10 +2889,15 @@ void RCOutput::timer_info(ExpandingString &str)
         } else {
             target_freq = protocol_bitrate(group.current_mode) * NEOP_BIT_WIDTH_TICKS;
         }
-        const uint32_t prescaler = calculate_bitrate_prescaler(group.pwm_drv->clock, target_freq, at_least_freq);
-        str.printf("TIM%-2u CLK=%4uMhz MODE=%5s FREQ=%8u TGT=%8u\n", group.timer_id, unsigned(group.pwm_drv->clock / 1000000),
+#ifndef WCH
+        const uint32_t prescaler = calculate_bitrate_prescaler(pwm_driver_clock(group.pwm_drv), target_freq, at_least_freq);
+        str.printf("TIM%-2u CLK=%4uMhz MODE=%5s FREQ=%8u TGT=%8u\n", group.timer_id, unsigned(pwm_driver_clock(group.pwm_drv) / 1000000),
+#else
+        const uint32_t prescaler = calculate_bitrate_prescaler(STM32_PCLK2, target_freq, at_least_freq);
+        str.printf("TIM%-2u CLK=%4uMhz MODE=%5s FREQ=%8u TGT=%8u\n", group.timer_id, unsigned(STM32_PCLK2 / 1000000),
+#endif
             get_output_mode_string(group.current_mode),
-            unsigned(group.pwm_drv->clock / (prescaler + 1)), unsigned(target_freq));
+            unsigned(pwm_driver_clock(group.pwm_drv) / (prescaler + 1)), unsigned(target_freq));
     }
 #endif
 }

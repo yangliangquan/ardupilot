@@ -27,7 +27,11 @@
 #include "sdcard.h"
 #include <sysperf.h>
 #include "hwdef/common/usbcfg.h"
+#ifdef WCH
+#include "ch32_util.h"
+#else
 #include "hwdef/common/stm32_util.h"
+#endif
 #include "hwdef/common/watchdog.h"
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_InternalError/AP_InternalError.h>

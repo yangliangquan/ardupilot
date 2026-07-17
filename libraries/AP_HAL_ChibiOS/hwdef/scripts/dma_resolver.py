@@ -94,20 +94,23 @@ def dma_name(key):
 def chibios_dma_define_name(key):
     '''return define name needed for board.h for ChibiOS'''
     dma_key = key + '_' + dma_name(key)
+    # Always use STM32 prefix for DMA stream names - AP_HAL_ChibiOS expects this
+    # CH32 DMAMUX channel names are handled separately via ch32_compat.h aliases
+    prefix = 'STM32'
     if key.startswith('ADC'):
-        return mcu_prefix + '_ADC_%s_' % dma_key
+        return prefix + '_ADC_%s_' % dma_key
     elif key.startswith('SPI'):
-        return mcu_prefix + '_SPI_%s_' % dma_key
+        return prefix + '_SPI_%s_' % dma_key
     elif key.startswith('I2C'):
-        return mcu_prefix + '_I2C_%s_' % dma_key
+        return prefix + '_I2C_%s_' % dma_key
     elif key.startswith('USART'):
-        return mcu_prefix + '_UART_%s_' % dma_key
+        return prefix + '_UART_%s_' % dma_key
     elif key.startswith('UART'):
-        return mcu_prefix + '_UART_%s_' % dma_key
+        return prefix + '_UART_%s_' % dma_key
     elif key.startswith('SDIO') or key.startswith('SDMMC'):
-        return mcu_prefix + '_SDC_%s_' % dma_key
+        return prefix + '_SDC_%s_' % dma_key
     elif key.startswith('TIM'):
-        return mcu_prefix + '_TIM_%s_' % dma_key
+        return prefix + '_TIM_%s_' % dma_key
     else:
         print("Error: Unknown key type %s" % key)
         sys.exit(1)

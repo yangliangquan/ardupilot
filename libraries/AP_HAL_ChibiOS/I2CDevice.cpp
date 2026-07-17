@@ -24,7 +24,11 @@
 #if HAL_USE_I2C == TRUE && defined(HAL_I2C_DEVICE_LIST)
 
 #include "Scheduler.h"
+#ifdef WCH
+#include "ch32_util.h"
+#else
 #include "hwdef/common/stm32_util.h"
+#endif
 #include <AP_InternalError/AP_InternalError.h>
 
 #include "ch.h"
@@ -89,6 +93,13 @@ I2CBus I2CDeviceManager::businfo[ARRAY_SIZE(I2CD)];
 #endif
 #ifndef HAL_I2C_G4_400_TIMINGR
 #define HAL_I2C_G4_400_TIMINGR 0x20501E65
+#endif
+
+#ifndef HAL_I2C_CH32_100_TIMINGR
+#define HAL_I2C_CH32_100_TIMINGR 0x00707CBB
+#endif
+#ifndef HAL_I2C_CH32_400_TIMINGR
+#define HAL_I2C_CH32_400_TIMINGR 0x00300F38
 #endif
 
 /*
@@ -247,6 +258,14 @@ I2CDeviceManager::I2CDeviceManager(void)
         } else {
             businfo[i].i2ccfg.timingr = HAL_I2C_G4_400_TIMINGR;
             businfo[i].busclock = 400000;
+        }
+#elif defined(CH32H417xx)
+        businfo[i].i2ccfg.op_mode = OPMODE_I2C;
+        businfo[i].i2ccfg.clock_speed = businfo[i].busclock;
+        if (businfo[i].i2ccfg.clock_speed <= 100000) {
+            businfo[i].i2ccfg.duty_cycle = STD_DUTY_CYCLE;
+        } else {
+            businfo[i].i2ccfg.duty_cycle = FAST_DUTY_CYCLE_2;
         }
 #else // F1 or F4
         businfo[i].i2ccfg.op_mode = OPMODE_I2C;

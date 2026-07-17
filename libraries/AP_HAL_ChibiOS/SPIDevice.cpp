@@ -23,7 +23,11 @@
 #include "Scheduler.h"
 #include "Semaphores.h"
 #include <stdio.h>
+#ifdef WCH
+#include "ch32_util.h"
+#else
 #include "hwdef/common/stm32_util.h"
+#endif
 
 #if HAL_USE_SPI == TRUE
 

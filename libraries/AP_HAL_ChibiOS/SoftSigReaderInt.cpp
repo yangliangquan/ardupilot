@@ -16,7 +16,11 @@
 
 #include <hal.h>
 #include "SoftSigReaderInt.h"
+#ifdef WCH
+#include "ch32_util.h"
+#else
 #include "hwdef/common/stm32_util.h"
+#endif
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
 

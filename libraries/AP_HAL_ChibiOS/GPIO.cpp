@@ -19,7 +19,11 @@
 #include "GPIO.h"
 
 #include <AP_BoardConfig/AP_BoardConfig.h>
+#ifdef WCH
+#include "ch32_util.h"
+#else
 #include "hwdef/common/stm32_util.h"
+#endif
 #include <AP_InternalError/AP_InternalError.h>
 #ifndef HAL_BOOTLOADER_BUILD
 #include <SRV_Channel/SRV_Channel.h>
@@ -159,9 +163,17 @@ void GPIO::setup_alt_config(void)
                 continue;
             }
             const iomode_t mode = alt.mode & ~PAL_STM32_HIGH;
-            const uint8_t odr = (alt.mode & PAL_STM32_HIGH)?1:0;
             palSetLineMode(alt.line, mode);
+#if defined(WCH)
+            if (alt.mode & PAL_STM32_HIGH) {
+                palSetLine(alt.line);
+            } else {
+                palClearLine(alt.line);
+            }
+#else
+            const uint8_t odr = (alt.mode & PAL_STM32_HIGH)?1:0;
             palWriteLine(alt.line, odr);
+#endif
         }
     }
 }
@@ -416,7 +428,15 @@ uint8_t DigitalSource::read()
 
 void DigitalSource::write(uint8_t value)
 {
+#if defined(WCH)
+    if (value) {
+        palSetLine(line);
+    } else {
+        palClearLine(line);
+    }
+#else
     palWriteLine(line, value);
+#endif
 }
 
 void DigitalSource::toggle()

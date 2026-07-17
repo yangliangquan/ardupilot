@@ -27,7 +27,11 @@
 #include <AP_InternalError/AP_InternalError.h>
 #include <AP_Common/ExpandingString.h>
 #include "Scheduler.h"
+#ifdef WCH
+#include "ch32_util.h"
+#else
 #include "hwdef/common/stm32_util.h"
+#endif
 // MAVLink is included to use the MAV_POWER flags for the USB power
 #include <GCS_MAVLink/GCS_MAVLink.h>
 
@@ -408,6 +412,8 @@ void UARTDriver::_begin(uint32_t b, uint16_t rxS, uint16_t txS)
                     chSysUnlock();
 #if defined(STM32F7) || defined(STM32H7) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
                     dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->RDR);
+#elif defined(WCH)
+                    dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->DATAR);
 #else
                     dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->DR);
 #endif // STM32F7
@@ -430,7 +436,11 @@ void UARTDriver::_begin(uint32_t b, uint16_t rxS, uint16_t txS)
                 }
             }
 #endif // HAL_UART_NODMA
+#ifndef WCH
             sercfg.speed = _baudrate;
+#else
+            sercfg.baud = _baudrate;
+#endif
 
             // start with options from set_options()
             sercfg.cr1 = _cr1_options;
@@ -457,7 +467,9 @@ void UARTDriver::_begin(uint32_t b, uint16_t rxS, uint16_t txS)
             if (tx_dma_enabled) {
                 sercfg.cr3 |= USART_CR3_DMAT;
             }
+#ifndef WCH
             sercfg.irq_cb = rx_irq_cb;
+#endif
 #if HAL_HAVE_LOW_NOISE_UART
             if (sdef.low_noise_line) {
                 // we can mark UART to sample on one bit instead of default 3 bits
@@ -469,7 +481,9 @@ void UARTDriver::_begin(uint32_t b, uint16_t rxS, uint16_t txS)
             if (!(sercfg.cr2 & USART_CR2_STOP2_BITS)) {
                 sercfg.cr2 |= USART_CR2_STOP1_BITS;
             }
+#ifndef WCH
             sercfg.ctx = (void*)this;
+#endif
 
             sdStart((SerialDriver*)sdef.serial, &sercfg);
 
@@ -477,7 +491,11 @@ void UARTDriver::_begin(uint32_t b, uint16_t rxS, uint16_t txS)
             if (rx_dma_enabled) {
                 //Configure serial driver to skip handling RX packets
                 //because we will handle them via DMA
+#if defined(WCH)
+                ((SerialDriver*)sdef.serial)->usart->CTLR1 &= ~USART_CR1_RXNEIE;
+#else
                 ((SerialDriver*)sdef.serial)->usart->CR1 &= ~USART_CR1_RXNEIE;
+#endif
                 // Start DMA
                 if (!was_initialised) {
                     dmaStreamDisable(rxdma);
@@ -536,6 +554,8 @@ void UARTDriver::dma_tx_allocate(Shared_DMA *ctx)
     chSysUnlock();
 #if defined(STM32F7) || defined(STM32H7) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
     dmaStreamSetPeripheral(txdma, &((SerialDriver*)sdef.serial)->usart->TDR);
+#elif defined(WCH)
+    dmaStreamSetPeripheral(txdma, &((SerialDriver*)sdef.serial)->usart->DATAR);
 #else
     dmaStreamSetPeripheral(txdma, &((SerialDriver*)sdef.serial)->usart->DR);
 #endif // STM32F7
@@ -588,12 +608,24 @@ void UARTDriver::rx_irq_cb(void* self)
     dmaStreamDisable(uart_drv->rxdma);
     uart_drv->rxdma->channel->CCR &= ~STM32_DMA_CR_EN;
 #else
+#if defined(WCH)
+    volatile uint16_t sr = ((SerialDriver*)(uart_drv->sdef.serial))->usart->STATR;
+#else
     volatile uint16_t sr = ((SerialDriver*)(uart_drv->sdef.serial))->usart->SR;
+#endif
     if(sr & USART_SR_IDLE) {
+#if defined(WCH)
+        volatile uint16_t dr = ((SerialDriver*)(uart_drv->sdef.serial))->usart->DATAR;
+#else
         volatile uint16_t dr = ((SerialDriver*)(uart_drv->sdef.serial))->usart->DR;
+#endif
         (void)dr;
         //disable dma, triggering DMA transfer complete interrupt
+#if defined(WCH)
+        dmaStreamDisable(uart_drv->rxdma);
+#else
         uart_drv->rxdma->stream->CR &= ~STM32_DMA_CR_EN;
+#endif
     }
 #endif // STM32F7
 #endif // HAL_USE_SERIAL
@@ -1143,6 +1175,8 @@ void UARTDriver::_rx_timer_tick(void)
         //let's handle that here so that we can continue receiving
 #if defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
         bool enabled = (rxdma->channel->CCR & STM32_DMA_CR_EN);
+#elif defined(WCH)
+        bool enabled = (rxdma->channel->CFGR & DMA_CFGR1_EN);
 #else
         bool enabled = (rxdma->stream->CR & STM32_DMA_CR_EN);
 #endif
@@ -1313,11 +1347,19 @@ void UARTDriver::set_flow_control(enum flow_control flowcontrol)
         _rts_is_active = true;
         // disable hardware CTS support
         chSysLock();
+#if defined(WCH)
+        if ((sd->usart->CTLR3 & (USART_CR3_CTSE | USART_CR3_RTSE)) != 0) {
+            sd->usart->CTLR1 &= ~USART_CR1_UE;
+            sd->usart->CTLR3 &= ~(USART_CR3_CTSE | USART_CR3_RTSE);
+            sd->usart->CTLR1 |= USART_CR1_UE;
+        }
+#else
         if ((sd->usart->CR3 & (USART_CR3_CTSE | USART_CR3_RTSE)) != 0) {
             sd->usart->CR1 &= ~USART_CR1_UE;
             sd->usart->CR3 &= ~(USART_CR3_CTSE | USART_CR3_RTSE);
             sd->usart->CR1 |= USART_CR1_UE;
         }
+#endif
         chSysUnlock();
         break;
 
@@ -1335,6 +1377,15 @@ void UARTDriver::set_flow_control(enum flow_control flowcontrol)
         _rts_is_active = true;
         // enable hardware CTS support, disable RTS support as we do that in software
         chSysLock();
+#if defined(WCH)
+        if ((sd->usart->CTLR3 & (USART_CR3_CTSE | USART_CR3_RTSE)) != USART_CR3_CTSE) {
+            // CTSE and RTSE can only be written when uart is disabled
+            sd->usart->CTLR1 &= ~USART_CR1_UE;
+            sd->usart->CTLR3 |= USART_CR3_CTSE;
+            sd->usart->CTLR3 &= ~USART_CR3_RTSE;
+            sd->usart->CTLR1 |= USART_CR1_UE;
+        }
+#else
         if ((sd->usart->CR3 & (USART_CR3_CTSE | USART_CR3_RTSE)) != USART_CR3_CTSE) {
             // CTSE and RTSE can only be written when uart is disabled
             sd->usart->CR1 &= ~USART_CR1_UE;
@@ -1342,6 +1393,7 @@ void UARTDriver::set_flow_control(enum flow_control flowcontrol)
             sd->usart->CR3 &= ~USART_CR3_RTSE;
             sd->usart->CR1 |= USART_CR1_UE;
         }
+#endif
         chSysUnlock();
         break;
 
@@ -1355,12 +1407,21 @@ void UARTDriver::set_flow_control(enum flow_control flowcontrol)
 
             // Enable in driver, if not already set
             chSysLock();
+#if defined(WCH)
+            if ((sd->usart->CTLR3 & USART_CR3_DEM) != USART_CR3_DEM) {
+                // Disable UART, set bit and then re-enable
+                sd->usart->CTLR1 &= ~USART_CR1_UE;
+                sd->usart->CTLR3 |= USART_CR3_DEM;
+                sd->usart->CTLR1 |= USART_CR1_UE;
+            }
+#else
             if ((sd->usart->CR3 & USART_CR3_DEM) != USART_CR3_DEM) {
                 // Disable UART, set bit and then re-enable
                 sd->usart->CR1 &= ~USART_CR1_UE;
                 sd->usart->CR3 |= USART_CR3_DEM;
                 sd->usart->CR1 |= USART_CR1_UE;
             }
+#endif
             chSysUnlock();
         } else
 #endif
@@ -1463,7 +1524,11 @@ void UARTDriver::configure_parity(uint8_t v)
     if (rx_dma_enabled) {
         // Configure serial driver to skip handling RX packets
         // because we will handle them via DMA
+#if defined(WCH)
+        ((SerialDriver*)sdef.serial)->usart->CTLR1 &= ~USART_CR1_RXNEIE;
+#else
         ((SerialDriver*)sdef.serial)->usart->CR1 &= ~USART_CR1_RXNEIE;
+#endif
     }
 #endif
 #endif // HAL_USE_SERIAL
@@ -1499,7 +1564,11 @@ void UARTDriver::set_stop_bits(int n)
     if (rx_dma_enabled) {
         //Configure serial driver to skip handling RX packets
         //because we will handle them via DMA
+#if defined(WCH)
+        ((SerialDriver*)sdef.serial)->usart->CTLR1 &= ~USART_CR1_RXNEIE;
+#else
         ((SerialDriver*)sdef.serial)->usart->CR1 &= ~USART_CR1_RXNEIE;
+#endif
     }
 #endif
 #endif // HAL_USE_SERIAL
@@ -1571,9 +1640,15 @@ bool UARTDriver::set_options(uint16_t options)
 
 #if HAL_USE_SERIAL == TRUE
     SerialDriver *sd = (SerialDriver*)(sdef.serial);
+#if defined(WCH)
+    uint32_t cr2 = sd->usart->CTLR2;
+    uint32_t cr3 = sd->usart->CTLR3;
+    bool was_enabled = (sd->usart->CTLR1 & USART_CR1_UE);
+#else
     uint32_t cr2 = sd->usart->CR2;
     uint32_t cr3 = sd->usart->CR3;
     bool was_enabled = (sd->usart->CR1 & USART_CR1_UE);
+#endif
 
     /*
       allow for RX, TX, RTS and CTS pins to be remapped via BRD_ALT_CONFIG
@@ -1696,6 +1771,24 @@ bool UARTDriver::set_options(uint16_t options)
 
     set_pushpull(options);
 
+#if defined(WCH)
+    if (sd->usart->CTLR2 == cr2 &&
+        sd->usart->CTLR3 == cr3) {
+        // no change
+        return ret;
+    }
+
+    if (was_enabled) {
+        sd->usart->CTLR1 &= ~USART_CR1_UE;
+    }
+
+    sd->usart->CTLR2 = cr2;
+    sd->usart->CTLR3 = cr3;
+
+    if (was_enabled) {
+        sd->usart->CTLR1 |= USART_CR1_UE;
+    }
+#else
     if (sd->usart->CR2 == cr2 &&
         sd->usart->CR3 == cr3) {
         // no change
@@ -1712,6 +1805,7 @@ bool UARTDriver::set_options(uint16_t options)
     if (was_enabled) {
         sd->usart->CR1 |= USART_CR1_UE;
     }
+#endif
 #endif // HAL_USE_SERIAL == TRUE
     return ret;
 }
@@ -1771,7 +1865,15 @@ bool UARTDriver::set_CTS_pin(bool high)
         return false;
     }
     palSetLineMode(acts_line, 1);
+#if defined(WCH)
+    if (high) {
+        palSetLine(acts_line);
+    } else {
+        palClearLine(acts_line);
+    }
+#else
     palWriteLine(acts_line, high?1:0);
+#endif
     return true;
 }
 
@@ -1790,7 +1892,15 @@ bool UARTDriver::set_RTS_pin(bool high)
         return false;
     }
     palSetLineMode(arts_line, 1);
+#if defined(WCH)
+    if (high) {
+        palSetLine(arts_line);
+    } else {
+        palClearLine(arts_line);
+    }
+#else
     palWriteLine(arts_line, high?1:0);
+#endif
     return true;
 }
 

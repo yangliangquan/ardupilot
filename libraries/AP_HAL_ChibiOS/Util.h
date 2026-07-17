@@ -28,7 +28,7 @@ class ExpandingString;
 // on F7 and H7 we will try to save key persistent parameters at the
 // end of the bootloader sector. This enables temperature calibration
 // data to be saved persistently in the factory
-#define HAL_ENABLE_SAVE_PERSISTENT_PARAMS (defined(STM32F7) || defined(STM32H7))
+#define HAL_ENABLE_SAVE_PERSISTENT_PARAMS (defined(STM32F7) || defined(STM32H7) || defined(CH32H417xx))
 #endif
 
 class ChibiOS::Util : public AP_HAL::Util {

@@ -17,12 +17,16 @@
 #include <hal.h>
 #include "SPIDevice.h"
 #include "sdcard.h"
-#include "bouncebuffer.h"
+#include "hwdef/common/bouncebuffer.h"
 #include "hwdef/common/spi_hook.h"
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_Filesystem/AP_Filesystem.h>
-#include "bouncebuffer.h"
+#include "hwdef/common/bouncebuffer.h"
+#ifdef WCH
+#include "ch32_util.h"
+#else
 #include "stm32_util.h"
+#endif
 
 extern const AP_HAL::HAL& hal;
 
@@ -37,7 +41,6 @@ static bool sdcard_running;
 #if HAL_USE_SDC
 static SDCConfig sdcconfig = {
   SDC_MODE_4BIT,
-  0
 };
 #elif HAL_USE_MMC_SPI
 MMCDriver MMCD1;
@@ -67,9 +70,14 @@ bool sdcard_init()
 #if STM32_SDC_USE_SDMMC2 == TRUE
     auto &sdcd = SDCD2;
 #else
+#if defined(WCH)
+    auto &sdcd = SDCD1;
+#else
     auto &sdcd = SDCD1;
 #endif
+#endif
 
+#if !defined(WCH)
     if (sdcd.bouncebuffer == nullptr) {
         // allocate 4k-32k bouncebuffer for microSD to match size in
         // AP_Logger
@@ -97,6 +105,7 @@ bool sdcard_init()
             return false;
         }
     }
+#endif // !WCH
 
     if (sdcard_running) {
         sdcard_stop();
@@ -104,7 +113,9 @@ bool sdcard_init()
 
     const uint8_t tries = 3;
     for (uint8_t i=0; i<tries; i++) {
+#if !defined(WCH)
         sdcconfig.slowdown = sd_slowdown;
+#endif
         sdcStart(&sdcd, &sdcconfig);
         if(sdcConnect(&sdcd) == HAL_FAILED) {
             sdcStop(&sdcd);

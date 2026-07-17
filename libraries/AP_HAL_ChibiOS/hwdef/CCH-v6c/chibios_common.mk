@@ -121,6 +121,10 @@ LDFLAGS   = $(MCFLAGS) $(OPT) -nostartfiles $(LLIBDIR) -Wl,-Map=$(BUILDDIR)/$(PR
 # provide a marker for ArduPilot build options in ChibiOS
 CFLAGS    += -D_ARDUPILOT_
 
+# CH32: suppress macro redefinition errors between hwdef.h and CH32 PAL LLD headers
+CFLAGS    += -Wno-redefinition
+CPPFLAGS  += -Wno-redefinition
+
 ifeq ($(ENABLE_ASSERTS),yes)
   ASXFLAGS += -DHAL_CHIBIOS_ENABLE_ASSERTS
 endif

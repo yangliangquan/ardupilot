@@ -7,7 +7,9 @@
 #include "stm32_util.h"
 
 #ifndef IWDG_BASE
-#if defined(STM32H7)
+#if defined(WCH)
+#define IWDG_BASE             0x40003000
+#elif defined(STM32H7)
 #define IWDG_BASE             0x58004800
 #elif defined(STM32F7) || defined(STM32F4)
 #define IWDG_BASE             0x40003000
@@ -35,7 +37,12 @@
 /*
   defines for working out if the reset was from the watchdog
  */
-#if defined(STM32H7)
+#if defined(WCH)
+#define WDG_RESET_STATUS (*(__IO uint32_t *)(RCC_BASE + 0x28))
+#define WDG_RESET_CLEAR (1U<<24)
+#define WDG_RESET_IS_IWDG (1U<<29)
+#define WDG_RESET_IS_SFT (1U<<28)
+#elif defined(STM32H7)
 #define WDG_RESET_STATUS (*(__IO uint32_t *)(RCC_BASE + 0xD0))
 #define WDG_RESET_CLEAR (1U<<16)
 #define WDG_RESET_IS_IWDG (1U<<26)
@@ -61,11 +68,18 @@
 
 typedef struct
 {
+#ifdef WCH
+  __IO uint32_t CTLR;  /*!< IWDG Key register,       Address offset: 0x00 */
+  __IO uint32_t PSCR;  /*!< IWDG Prescaler register, Address offset: 0x04 */
+  __IO uint32_t RLDR;  /*!< IWDG Reload register,    Address offset: 0x08 */
+  __IO uint32_t STATR; /*!< IWDG Status register,    Address offset: 0x0C */
+#else
   __IO uint32_t KR;   /*!< IWDG Key register,       Address offset: 0x00 */
   __IO uint32_t PR;   /*!< IWDG Prescaler register, Address offset: 0x04 */
   __IO uint32_t RLR;  /*!< IWDG Reload register,    Address offset: 0x08 */
   __IO uint32_t SR;   /*!< IWDG Status register,    Address offset: 0x0C */
   __IO uint32_t WINR; /*!< IWDG Window register,    Address offset: 0x10 */
+#endif
 } IWDG_Regs;
 
 #define IWDGD (*(IWDG_Regs *)(IWDG_BASE))
@@ -80,10 +94,17 @@ void stm32_watchdog_init(void)
 {
     // setup the watchdog timeout
     // t = 4 * 2^PR * (RLR+1) / 32KHz
+#ifdef WCH
+    IWDGD.CTLR = 0x5555;
+    IWDGD.PSCR = 3; // changing this would change the definition of STM32_WDG_TIMEOUT_MS
+    IWDGD.RLDR = STM32_WDG_TIMEOUT_MS - 1;
+    IWDGD.CTLR = 0xCCCC;
+#else
     IWDGD.KR = 0x5555;
     IWDGD.PR = 3; // changing this would change the definition of STM32_WDG_TIMEOUT_MS
     IWDGD.RLR = STM32_WDG_TIMEOUT_MS - 1;
     IWDGD.KR = 0xCCCC;
+#endif
     watchdog_enabled = true;
 }
 
@@ -94,7 +115,11 @@ void stm32_watchdog_init(void)
 void stm32_watchdog_pat(void)
 {
     if (watchdog_enabled) {
+#ifdef WCH
+        IWDGD.CTLR = 0xAAAA;
+#else
         IWDGD.KR = 0xAAAA;
+#endif
     }
 }
 

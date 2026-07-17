@@ -21,7 +21,11 @@
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_InternalError/AP_InternalError.h>
 #include "hwdef/common/watchdog.h"
+#ifdef WCH
+#include "ch32_util.h"
+#else
 #include "hwdef/common/stm32_util.h"
+#endif
 #include <AP_Vehicle/AP_Vehicle_Type.h>
 #if AP_CRASHDUMP_ENABLED
 #include <CrashCatcher.h>
@@ -83,6 +87,7 @@ ASSERT_CLOCK(STM32_FDCANCLK);
 extern const AP_HAL::HAL& hal;
 extern "C"
 {
+#ifndef WCH
 #define bkpt() __asm volatile("BKPT #0\n")
 
 #if !AP_CRASHDUMP_ENABLED
@@ -247,7 +252,31 @@ void MemManage_Handler(void);
 void MemManage_Handler(void) {
     HardFault_Handler();
 }
-#endif
+#endif // !AP_CRASHDUMP_ENABLED
+
+#else // WCH - RISC-V fault handlers
+
+#if !AP_CRASHDUMP_ENABLED
+void HardFault_Handler(void) {
+    while(1) {}
+}
+void BusFault_Handler(void) {
+    while(1) {}
+}
+void UsageFault_Handler(void) {
+    while(1) {}
+}
+void MemManage_Handler(void) {
+    while(1) {}
+}
+#else
+extern void HardFault_Handler(void);
+void BusFault_Handler(void) { HardFault_Handler(); }
+void UsageFault_Handler(void) { HardFault_Handler(); }
+void MemManage_Handler(void) { HardFault_Handler(); }
+#endif // AP_CRASHDUMP_ENABLED
+
+#endif // WCH
 
 
 #if AP_WATCHDOG_SAVE_FAULT_ENABLED
@@ -272,7 +301,9 @@ void save_fault_watchdog(uint16_t line, FaultType fault_type, uint32_t fault_add
                     strncpy_noterm(pd.thread_name4, tp->name, 4);
                 }
             }
+#ifndef WCH
             pd.fault_icsr = SCB->ICSR;
+#endif
             pd.fault_lr = lr;
         }
         stm32_watchdog_save((uint32_t *)&hal.util->persistent_data, (sizeof(hal.util->persistent_data)+3)/4);
@@ -298,6 +329,7 @@ void __entry_hook()
     if (pd.boot_to_dfu) {
         pd.boot_to_dfu = false;
         stm32_watchdog_save((uint32_t *)&pd, (sizeof(pd)+3)/4);
+#ifndef WCH
 #if defined(STM32H7)
         const uint32_t *app_base = (const uint32_t *)(0x1FF09800); 
 #else
@@ -306,6 +338,12 @@ void __entry_hook()
         __set_MSP(*app_base);
         ((void (*)())*(&app_base[1]))();
         while(true);
+#else
+        // CH32H417: jump to application at 0x00000000 + offset
+        const uint32_t *app_base = (const uint32_t *)(0x00000000 + 0x1000);
+        ((void (*)())*(&app_base[1]))();
+        while(true);
+#endif
     }
 }
 #endif

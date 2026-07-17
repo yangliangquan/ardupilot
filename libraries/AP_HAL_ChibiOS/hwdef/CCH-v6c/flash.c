@@ -148,6 +148,9 @@ static const uint32_t flash_memmap[STM32_FLASH_NPAGES] = { KB(32), KB(32), KB(32
 #elif defined(STM32L4)
 #define STM32_FLASH_NPAGES (BOARD_FLASH_SIZE/2)
 #define STM32_FLASH_FIXED_PAGE_SIZE 2
+#elif defined(WCH)
+#define STM32_FLASH_NPAGES (BOARD_FLASH_SIZE/4)
+#define STM32_FLASH_FIXED_PAGE_SIZE 4
 #else
 #error "Unsupported processor for flash.c"
 #endif
@@ -192,6 +195,27 @@ static bool flash_keep_unlocked;
 /* Some compiler options will convert short loads and stores into byte loads
  * and stores.  We don't want this to happen for IO reads and writes!
  */
+#ifdef WCH
+static inline uint16_t getreg16(unsigned int addr)
+{
+    return *(volatile uint16_t *)(addr);
+}
+
+static inline void putreg16(uint16_t val, unsigned int addr)
+{
+    *(volatile uint16_t *)(addr) = val;
+}
+
+static inline uint32_t getreg32(unsigned int addr)
+{
+    return *(volatile uint32_t *)(addr);
+}
+
+static inline void putreg32(uint32_t val, unsigned int addr)
+{
+    *(volatile uint32_t *)(addr) = val;
+}
+#else
 /* # define getreg16(a)       (*(volatile uint16_t *)(a)) */
 static inline uint16_t getreg16(unsigned int addr)
 {
@@ -219,11 +243,20 @@ static inline void putreg32(uint32_t val, unsigned int addr)
 {
     *(volatile uint32_t *)(addr) = val;
 }
+#endif /* WCH */
 
 static void stm32_flash_wait_idle(void)
 {
+#ifdef WCH
+    __asm__ volatile("" ::: "memory");
+#else
     __DSB();
-#if defined(STM32H7)
+#endif
+#ifdef WCH
+    while (FLASH->STATR & FLASH_STATR_BSY) {
+        // nop
+    }
+#elif defined(STM32H7)
     while ((FLASH->SR1 & (FLASH_SR_BSY|FLASH_SR_QW|FLASH_SR_WBNE))
 #if STM32_FLASH_NBANKS > 1
             || (FLASH->SR2 & (FLASH_SR_BSY|FLASH_SR_QW|FLASH_SR_WBNE))
@@ -240,7 +273,9 @@ static void stm32_flash_wait_idle(void)
 
 static void stm32_flash_clear_errors(void)
 {
-#if defined(STM32H7)
+#ifdef WCH
+    (void)FLASH->STATR;
+#elif defined(STM32H7)
     FLASH->CCR1 = ~0;
 #if STM32_FLASH_NBANKS > 1
     FLASH->CCR2 = ~0;
@@ -259,7 +294,13 @@ static void stm32_flash_unlock(void)
     }
     stm32_flash_wait_idle();
 
-#if defined(STM32H7)
+#ifdef WCH
+    if (FLASH->CTLR & FLASH_CTLR_LOCK) {
+        /* Unlock sequence */
+        FLASH->KEYR = FLASH_KEY1;
+        FLASH->KEYR = FLASH_KEY2;
+    }
+#elif defined(STM32H7)
     if (FLASH->CR1 & FLASH_CR_LOCK) {
         /* Unlock sequence */
         FLASH->KEYR1 = FLASH_KEY1;
@@ -291,7 +332,10 @@ void stm32_flash_lock(void)
     if (flash_keep_unlocked) {
         return;
     }
-#if defined(STM32H7)
+#ifdef WCH
+    stm32_flash_wait_idle();
+    FLASH->CTLR |= FLASH_CTLR_LOCK;
+#elif defined(STM32H7)
     if (FLASH->SR1 & FLASH_SR_QW) {
         FLASH->CR1 |= FLASH_CR_FW;
     }
@@ -568,6 +612,13 @@ bool stm32_flash_erasepage(uint32_t page)
         while (FLASH->SR2 & FLASH_SR_QW) ;
     }
 #endif
+#elif defined(WCH)
+    /* CH32H417 page erase: set PER, write page address to ADDR, set STRT */
+    FLASH->STATR = ~0;
+    stm32_flash_wait_idle();
+    FLASH->CTLR |= FLASH_CTLR_PER;
+    FLASH->ADDR = stm32_flash_getpageaddr(page);
+    FLASH->CTLR |= FLASH_CTLR_STRT;
 #elif defined(STM32F1) || defined(STM32F3)
     FLASH->CR = FLASH_CR_PER;
     FLASH->AR = stm32_flash_getpageaddr(page);
@@ -969,9 +1020,72 @@ failed:
 }
 #endif // STM32G4
 
+#if defined(WCH)
+static bool stm32_flash_write_ch32(uint32_t addr, const void *buf, uint32_t count)
+{
+    const uint8_t *b = (const uint8_t *)buf;
+
+    /* CH32H417 requires half-word access */
+    if (count & 1) {
+        _flash_fail_line = __LINE__;
+        return false;
+    }
+
+    if ((addr+count) > STM32_FLASH_BASE+STM32_FLASH_SIZE) {
+        _flash_fail_line = __LINE__;
+        return false;
+    }
+
+#if STM32_FLASH_DISABLE_ISR
+    syssts_t sts = chSysGetStatusAndLockX();
+#endif
+
+    stm32_flash_unlock();
+    stm32_flash_wait_idle();
+
+    while (count >= 2) {
+        FLASH->CTLR |= FLASH_CTLR_PG;
+
+        putreg16(*(uint16_t *)b, addr);
+
+        __DSB();
+        stm32_flash_wait_idle();
+
+        FLASH->CTLR &= ~FLASH_CTLR_PG;
+
+        if (getreg16(addr) != *(uint16_t *)b) {
+            _flash_fail_line = __LINE__;
+            _flash_fail_addr = addr;
+            _flash_fail_count = count;
+            _flash_fail_buf = (uint8_t *)b;
+            goto ch32_failed;
+        }
+
+        count -= 2;
+        b += 2;
+        addr += 2;
+    }
+
+    stm32_flash_lock();
+#if STM32_FLASH_DISABLE_ISR
+    chSysRestoreStatusX(sts);
+#endif
+    return true;
+
+ch32_failed:
+    stm32_flash_lock();
+#if STM32_FLASH_DISABLE_ISR
+    chSysRestoreStatusX(sts);
+#endif
+    return false;
+}
+#endif // WCH
+
 bool stm32_flash_write(uint32_t addr, const void *buf, uint32_t count)
 {
-#if defined(STM32F1) || defined(STM32F3)
+#if defined(WCH)
+    return stm32_flash_write_ch32(addr, buf, count);
+#elif defined(STM32F1) || defined(STM32F3)
     return stm32_flash_write_f1(addr, buf, count);
 #elif defined(STM32F4) || defined(STM32F7)
     return stm32_flash_write_f4f7(addr, buf, count);

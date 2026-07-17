@@ -19,6 +19,7 @@
 
 #define CH32H41x_MCUCONF
 #define CH32H417_MCUCONF
+#define WCH
 
 /*
  * NOTE: Peripheral enable defines (CH32_SERIAL_USE_*, CH32_SPI_USE_*,
@@ -34,6 +35,9 @@
 #ifndef CH32_ST_USE_TIMER
 #define CH32_ST_USE_TIMER                   5
 #endif
+
+/* Enable SDC1 driver for SD card */
+#define CH32_SDC_USE_SDC1                   TRUE
 
 /* SDMMC clock frequency in Hz (HCLK = 100MHz for V3F) */
 #define CH32_SDC_SDMMC_CLOCK               100000000

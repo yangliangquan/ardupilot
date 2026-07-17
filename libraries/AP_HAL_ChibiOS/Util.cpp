@@ -23,7 +23,11 @@
 #include <sysperf.h>
 #include "RCOutput.h"
 #include "UARTDriver.h"
+#ifdef WCH
+#include "ch32_util.h"
+#else
 #include "hwdef/common/stm32_util.h"
+#endif
 #include "hwdef/common/watchdog.h"
 #include "hwdef/common/flash.h"
 #include <AP_ROMFS/AP_ROMFS.h>

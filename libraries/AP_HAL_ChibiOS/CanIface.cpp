@@ -682,6 +682,10 @@ void CANIface::initOnce(bool enable_irq)
             RCC->APB1ENR1 |=  RCC_APB1ENR1_CAN1EN;
             RCC->APB1RSTR1 |=  RCC_APB1RSTR1_CAN1RST;
             RCC->APB1RSTR1 &= ~RCC_APB1RSTR1_CAN1RST;
+#elif defined(WCH)
+            RCC->HB1PCENR |=  RCC_CAN1EN;
+            RCC->HB1PRSTR |=  RCC_CAN1RST;
+            RCC->HB1PRSTR &= ~RCC_CAN1RST;
 #else
             RCC->APB1ENR  |=  RCC_APB1ENR_CAN1EN;
             RCC->APB1RSTR |=  RCC_APB1RSTR_CAN1RST;
@@ -719,23 +723,30 @@ void CANIface::initOnce(bool enable_irq)
         switch (can_interfaces[self_index_]) {
         case 0:
 #ifdef HAL_CAN_IFACE1_ENABLE
-            nvicEnableVector(CAN1_TX_IRQn,  CORTEX_MAX_KERNEL_PRIORITY);
-            nvicEnableVector(CAN1_RX0_IRQn, CORTEX_MAX_KERNEL_PRIORITY);
-            nvicEnableVector(CAN1_RX1_IRQn, CORTEX_MAX_KERNEL_PRIORITY);
+#ifndef WCH
+        nvicEnableVector(CAN1_TX_IRQn,  CORTEX_MAX_KERNEL_PRIORITY);
+        nvicEnableVector(CAN1_RX0_IRQn, CORTEX_MAX_KERNEL_PRIORITY);
+        nvicEnableVector(CAN1_RX1_IRQn, CORTEX_MAX_KERNEL_PRIORITY);
+#else
+#endif
 #endif
             break;
         case 1:
 #ifdef HAL_CAN_IFACE2_ENABLE
+#ifndef WCH
             nvicEnableVector(CAN2_TX_IRQn,  CORTEX_MAX_KERNEL_PRIORITY);
             nvicEnableVector(CAN2_RX0_IRQn, CORTEX_MAX_KERNEL_PRIORITY);
             nvicEnableVector(CAN2_RX1_IRQn, CORTEX_MAX_KERNEL_PRIORITY);
 #endif
+#endif
             break;
         case 2:
 #ifdef HAL_CAN_IFACE3_ENABLE
+#ifndef WCH
             nvicEnableVector(CAN3_TX_IRQn,  CORTEX_MAX_KERNEL_PRIORITY);
             nvicEnableVector(CAN3_RX0_IRQn, CORTEX_MAX_KERNEL_PRIORITY);
             nvicEnableVector(CAN3_RX1_IRQn, CORTEX_MAX_KERNEL_PRIORITY);
+#endif
 #endif
             break;
         }

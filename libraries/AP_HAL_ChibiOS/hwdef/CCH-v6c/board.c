@@ -37,7 +37,18 @@
 /**
  * @brief   STM32 GPIO static initialization data.
  */
-#if defined(STM32F100_MCUCONF) || defined(STM32F103_MCUCONF) || defined(STM32F105_MCUCONF)
+#if defined(WCH)
+
+/*===========================================================================*/
+/* CH32H417 GPIO initialization.                                              */
+/*===========================================================================*/
+
+static void stm32_gpio_init(void) {
+  /* Enable GPIO clocks via CH32 RCC register */
+  RCC->HB2PCENR |= CH32_GPIO_EN_MASK;
+}
+
+#elif defined(STM32F100_MCUCONF) || defined(STM32F103_MCUCONF) || defined(STM32F105_MCUCONF)
 
 const PALConfig pal_default_config =
 {
