@@ -72,14 +72,15 @@ def can_share(periph, noshare_list):
 # list of peripherals that are on DMAMUX2 and BDMA
 have_DMAMUX = False
 DMAMUX2_peripherals = []
+mcu_prefix = 'STM32'
 
 def dmamux_channel(key):
-    '''return DMAMUX channel for H7'''
+    '''return DMAMUX channel for H7/CH32'''
     for p in DMAMUX2_peripherals:
         if key.find(p) != -1:
-            return 'STM32_DMAMUX2_' + key
+            return mcu_prefix + '_DMAMUX2_' + key
     # default to DMAMUX1
-    return 'STM32_DMAMUX1_' + key
+    return mcu_prefix + '_DMAMUX1_' + key
 
 def dma_name(key):
     '''return 'DMA' or 'BDMA' based on peripheral name'''
@@ -94,19 +95,19 @@ def chibios_dma_define_name(key):
     '''return define name needed for board.h for ChibiOS'''
     dma_key = key + '_' + dma_name(key)
     if key.startswith('ADC'):
-        return 'STM32_ADC_%s_' % dma_key
+        return mcu_prefix + '_ADC_%s_' % dma_key
     elif key.startswith('SPI'):
-        return 'STM32_SPI_%s_' % dma_key
+        return mcu_prefix + '_SPI_%s_' % dma_key
     elif key.startswith('I2C'):
-        return 'STM32_I2C_%s_' % dma_key
+        return mcu_prefix + '_I2C_%s_' % dma_key
     elif key.startswith('USART'):
-        return 'STM32_UART_%s_' % dma_key
+        return mcu_prefix + '_UART_%s_' % dma_key
     elif key.startswith('UART'):
-        return 'STM32_UART_%s_' % dma_key
+        return mcu_prefix + '_UART_%s_' % dma_key
     elif key.startswith('SDIO') or key.startswith('SDMMC'):
-        return 'STM32_SDC_%s_' % dma_key
+        return mcu_prefix + '_SDC_%s_' % dma_key
     elif key.startswith('TIM'):
-        return 'STM32_TIM_%s_' % dma_key
+        return mcu_prefix + '_TIM_%s_' % dma_key
     else:
         print("Error: Unknown key type %s" % key)
         sys.exit(1)
@@ -297,8 +298,14 @@ def forbidden_list(p, peripheral_list):
 def write_dma_header(f, peripheral_list, mcu_type, dma_exclude=[],
                      dma_priority='', dma_noshare=[], quiet=False):
     '''write out a DMA resolver header file'''
-    global dma_map, have_DMAMUX, has_bdshot
+    global dma_map, have_DMAMUX, has_bdshot, mcu_prefix
     timer_ch_periph = []
+
+    # set MCU prefix for define generation
+    if mcu_type.startswith('CH32'):
+        mcu_prefix = 'CH32'
+    else:
+        mcu_prefix = 'STM32'
 
     if mcu_type.startswith('STM32H7'):
         global DMAMUX2_peripherals

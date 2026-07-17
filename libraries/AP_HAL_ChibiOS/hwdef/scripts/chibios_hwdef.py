@@ -110,6 +110,7 @@ class ChibiOSHWDef(hwdef.HWDef):
         self.dma_exclude_pattern = []
 
         self.mcu_type = None
+        self._mcu_prefix = None
         self.dual_USB_enabled = False
 
         # list of device patterns that can't be shared
@@ -117,6 +118,16 @@ class ChibiOSHWDef(hwdef.HWDef):
 
         # list of shared up timers
         self.shared_up = []
+
+    @property
+    def mcu_prefix(self):
+        '''return MCU prefix: 'CH32' or 'STM32' based on mcu_type'''
+        if self._mcu_prefix is None:
+            if self.mcu_type and self.mcu_type.startswith('CH32'):
+                self._mcu_prefix = 'CH32'
+            else:
+                self._mcu_prefix = 'STM32'
+        return self._mcu_prefix
 
     def get_mcu_lib(self, mcu):
         '''get library file for the chosen MCU'''
@@ -131,7 +142,9 @@ class ChibiOSHWDef(hwdef.HWDef):
         lib = self.get_mcu_lib(self.mcu_type)
         if hasattr(lib, 'pincount'):
             self.pincount = lib.pincount
-        if self.mcu_series.startswith("STM32F1"):
+        # CH32 and STM32F1 use F1-style GPIO (CFGLR/CFGHR/CRL/CRH)
+        # All other STM32 use F4-style GPIO (MODER/OTYPER/OSPEEDR/PUPDR)
+        if self.mcu_series.startswith("CH32") or self.mcu_series.startswith("STM32F1"):
             self.vtypes = self.f1_vtypes
         else:
             self.vtypes = self.f4f7_vtypes
@@ -142,8 +155,8 @@ class ChibiOSHWDef(hwdef.HWDef):
             for pin in range(self.pincount[port]):
                 self.portmap[port].append(self.generic_pin(port, pin, None, self.default_gpio[0], self.default_gpio[1:], self.mcu_type, self.mcu_series, self.get_ADC1_chan, self.get_ADC2_chan, self.get_ADC3_chan, self.af_labels))  # noqa
 
-        if self.mcu_series.startswith("STM32H7") or self.mcu_series.startswith("STM32F7"):
-            # default DMA off on I2C for H7, we're much better off reducing DMA sharing
+        if self.mcu_series.startswith("CH32") or self.mcu_series.startswith("STM32H7") or self.mcu_series.startswith("STM32F7"):
+            # default DMA off on I2C for H7 and CH32, we're much better off reducing DMA sharing
             self.dma_exclude_pattern = ['I2C*']
 
     def get_alt_function(self, mcu, pin, function):
@@ -257,7 +270,9 @@ class ChibiOSHWDef(hwdef.HWDef):
                 self.sig_dir = 'OUTPUT'
             else:
                 self.sig_dir = 'INPUT'
-            if mcu_series.startswith("STM32F1") and self.label is not None:
+            if mcu_series.startswith("CH32") and self.label is not None:
+                self.f1_pin_setup(mcu_type)
+            elif mcu_series.startswith("STM32F1") and self.label is not None:
                 self.f1_pin_setup(mcu_type)
 
             # check that labels and pin types are consistent
@@ -271,8 +286,8 @@ class ChibiOSHWDef(hwdef.HWDef):
                         self.error("Peripheral prefix mismatch for %s %s %s" % (self.portpin, label, type))
 
         def f1_pin_setup(self, mcu_type):
-            f1_input_sigs = ['RX', 'MISO', 'CTS']
-            f1_output_sigs = ['TX', 'MOSI', 'SCK', 'RTS', 'CH1', 'CH2', 'CH3', 'CH4']
+            f1_input_sigs = ['RX', 'MISO', 'CTS', 'D0', 'D1', 'D2', 'D3']
+            f1_output_sigs = ['TX', 'MOSI', 'SCK', 'RTS', 'CH1', 'CH2', 'CH3', 'CH4', 'CK', 'CMD']
             for label in self.af_labels:
                 if self.label.startswith(label):
                     if self.label.endswith(tuple(f1_input_sigs)):
@@ -284,8 +299,11 @@ class ChibiOSHWDef(hwdef.HWDef):
                         self.sig_dir = 'OUTPUT'
                     elif label == 'OTG':
                         self.sig_dir = 'OUTPUT'
+                    elif label in ('SDIO', 'SDMMC', 'JT', 'CAN', 'ETH', 'MCO', 'QUADSPI', 'OCTOSPI'):
+                        # SWD/JTAG: input; CAN/SDIO/ETH: handled by peripheral; default to output
+                        self.sig_dir = 'OUTPUT'
                     else:
-                        self.error("Unknown signal type %s:%s for %s!" % (self.portpin, self.label, mcu_type))
+                        raise Exception("Unknown signal type %s:%s for %s!" % (self.portpin, self.label, mcu_type))
 
         def has_extra(self, v):
             '''return true if we have the given extra token'''
@@ -448,7 +466,7 @@ class ChibiOSHWDef(hwdef.HWDef):
 
         def get_ODR_value(self):
             '''return one of LOW, HIGH'''
-            if self.mcu_series.startswith("STM32F1"):
+            if self.mcu_series.startswith("STM32F1") or self.mcu_series.startswith("CH32"):
                 return self.get_ODR_F1_value()
             values = ['LOW', 'HIGH']
             v = 'HIGH'
@@ -527,7 +545,7 @@ class ChibiOSHWDef(hwdef.HWDef):
 
         def get_CR(self):
             '''return CR FLAGS'''
-            if self.mcu_series.startswith("STM32F1"):
+            if self.mcu_series.startswith("STM32F1") or self.mcu_series.startswith("CH32"):
                 return self.get_CR_F1()
             if self.sig_dir != "INPUT":
                 speed_values = ['SPEED_LOW', 'SPEED_MEDIUM', 'SPEED_HIGH']
@@ -785,7 +803,16 @@ class ChibiOSHWDef(hwdef.HWDef):
     def get_flash_pages_sizes(self):
         mcu_series = self.mcu_series
         mcu_type = self.mcu_type
-        if mcu_series.startswith('STM32F4') or mcu_series.startswith('CKS32F4'):
+        if mcu_series.startswith('CH32'):
+            # CH32H417: 4KB pages for first 256KB, 8KB pages for remaining 256KB
+            flash_kb = self.get_config('FLASH_SIZE_KB', type=int)
+            pages = [4] * 64  # first 256KB with 4KB pages
+            remaining = flash_kb - 256
+            while remaining > 0:
+                pages.append(8)
+                remaining -= 8
+            return pages
+        elif mcu_series.startswith('STM32F4') or mcu_series.startswith('CKS32F4'):
             if self.get_config('FLASH_SIZE_KB', type=int) == 512:
                 return [16, 16, 16, 16, 64, 128, 128, 128]
             elif self.get_config('FLASH_SIZE_KB', type=int) == 1024:
@@ -898,7 +925,7 @@ class ChibiOSHWDef(hwdef.HWDef):
             f.write('#define %s_MCUCONF\n\n' % mcu_subtype[:-2])
         f.write('#define %s\n\n' % mcu_subtype)
         f.write('// crystal frequency\n')
-        f.write('#define STM32_HSECLK %sU\n\n' % self.get_config('OSCILLATOR_HZ'))
+        f.write('#define %s_HSECLK %sU\n\n' % (self.mcu_prefix, self.get_config('OSCILLATOR_HZ')))
         f.write('// UART used for stdout (printf)\n')
         if self.get_config('STDOUT_SERIAL', required=False):
             f.write('#define HAL_STDOUT_SERIAL %s\n\n' % self.get_config('STDOUT_SERIAL'))
@@ -923,7 +950,7 @@ class ChibiOSHWDef(hwdef.HWDef):
             f.write('#define HAL_OS_POSIX_IO TRUE\n\n')
             f.write('#define HAL_USE_FATFS TRUE\n\n')
             f.write('#define HAL_USE_SDC TRUE\n')
-            f.write('#define STM32_SDC_USE_SDMMC2 TRUE\n')
+            f.write('#define %s_SDC_USE_SDMMC2 TRUE\n' % self.mcu_prefix)
             f.write('#define HAL_USE_SDMMC 1\n')
             self.build_flags.append('USE_FATFS=yes')
             self.env_vars['WITH_FATFS'] = "1"
@@ -933,7 +960,7 @@ class ChibiOSHWDef(hwdef.HWDef):
             f.write('#define HAL_USE_FATFS TRUE\n\n')
             f.write('#define HAL_OS_POSIX_IO TRUE\n\n')
             f.write('#define HAL_USE_SDC TRUE\n')
-            f.write('#define STM32_SDC_USE_SDMMC1 TRUE\n')
+            f.write('#define %s_SDC_USE_SDMMC1 TRUE\n' % self.mcu_prefix)
             f.write('#define HAL_USE_SDMMC 1\n')
             self.build_flags.append('USE_FATFS=yes')
             self.env_vars['WITH_FATFS'] = "1"
@@ -953,15 +980,15 @@ class ChibiOSHWDef(hwdef.HWDef):
             self.build_flags.append('USE_FATFS=no')
         if 'OTG1' in self.bytype:
             if self.get_mcu_config('STM32_OTG2_IS_OTG1', False) is not None:
-                f.write('#define STM32_USB_USE_OTG2                  TRUE\n')
-                f.write('#define STM32_OTG2_IS_OTG1                  TRUE\n')
+                f.write('#define %s_USB_USE_OTG2                  TRUE\n' % self.mcu_prefix)
+                f.write('#define %s_OTG2_IS_OTG1                  TRUE\n' % self.mcu_prefix)
             else:
-                f.write('#define STM32_USB_USE_OTG1                  TRUE\n')
-                f.write('#define STM32_OTG2_IS_OTG1                  FALSE\n')
+                f.write('#define %s_USB_USE_OTG1                  TRUE\n' % self.mcu_prefix)
+                f.write('#define %s_OTG2_IS_OTG1                  FALSE\n' % self.mcu_prefix)
             f.write('#define HAL_USE_USB TRUE\n')
             f.write('#define HAL_USE_SERIAL_USB TRUE\n')
         if 'OTG2' in self.bytype:
-            f.write('#define STM32_USB_USE_OTG2                  TRUE\n')
+            f.write('#define %s_USB_USE_OTG2                  TRUE\n' % self.mcu_prefix)
 
         if 'ETH1' in self.bytype:
             self.enable_networking(f)
@@ -969,9 +996,8 @@ class ChibiOSHWDef(hwdef.HWDef):
 
 #define HAL_USE_MAC                         TRUE
 #define MAC_USE_EVENTS                      TRUE
-#define STM32_ETH_BUFFERS_EXTERN
-
-''')
+#define %s_ETH_BUFFERS_EXTERN
+''' % self.mcu_prefix)
         defines = self.get_mcu_config('DEFINES', False)
         if defines is not None:
             for d in defines.keys():
@@ -1015,10 +1041,10 @@ class ChibiOSHWDef(hwdef.HWDef):
         else:
             self.env_vars['PERIPH_FW'] = 0
 
-        # write any custom STM32 defines
+        # write any custom MCU-prefixed defines (STM32_ or CH32_)
         using_chibios_can = False
         for d in self.alllines:
-            if d.startswith('STM32_'):
+            if d.startswith('STM32_') or d.startswith('CH32_'):
                 f.write('#define %s\n' % d)
             if d.startswith('define '):
                 if 'HAL_USE_CAN' in d:
@@ -1042,7 +1068,11 @@ class ChibiOSHWDef(hwdef.HWDef):
         flash_reserve_start = self.get_config(
             'FLASH_RESERVE_START_KB', default=16, type=int)
         f.write('\n// location of loaded firmware\n')
-        f.write('#define FLASH_LOAD_ADDRESS 0x%08x\n' % (0x08000000 + flash_reserve_start*1024))
+        if self.mcu_prefix == 'CH32':
+            # CH32H417 Flash executes from 0x00000000, not 0x08000000
+            f.write('#define FLASH_LOAD_ADDRESS 0x%08x\n' % (flash_reserve_start*1024))
+        else:
+            f.write('#define FLASH_LOAD_ADDRESS 0x%08x\n' % (0x08000000 + flash_reserve_start*1024))
         # can be no persistent parameters if no space allocated for them
         if not self.is_bootloader_fw() and flash_reserve_start == 0:
             f.write('#define HAL_ENABLE_SAVE_PERSISTENT_PARAMS 0\n')
@@ -1247,7 +1277,7 @@ class ChibiOSHWDef(hwdef.HWDef):
 #ifndef CH_CFG_USE_DYNAMIC
 #define CH_CFG_USE_DYNAMIC FALSE
 #endif
-#define STM32_FLASH_DISABLE_ISR 0
+#define %s_FLASH_DISABLE_ISR 0
 #ifndef PAL_USE_CALLBACKS
 #define PAL_USE_CALLBACKS FALSE
 #endif
@@ -1273,7 +1303,7 @@ class ChibiOSHWDef(hwdef.HWDef):
             f.write('#define HAL_ROMFS_UNCOMPRESSED\n')
 
         if not self.is_bootloader_fw():
-            f.write('''#define STM32_DMA_REQUIRED TRUE\n\n''')
+            f.write('#define %s_DMA_REQUIRED TRUE\n\n' % self.mcu_prefix)
 
         if self.is_bootloader_fw():
             # do not enable flash protection in bootloader, even if hwdef
@@ -1329,7 +1359,11 @@ class ChibiOSHWDef(hwdef.HWDef):
         ram_map = self.get_ram_map()
         instruction_ram = self.get_mcu_config('INSTRUCTION_RAM', False)
 
-        flash_base = 0x08000000 + flash_reserve_start * 1024
+        if self.mcu_prefix == 'CH32':
+            # CH32H417 Flash executes from 0x00000000
+            flash_base = flash_reserve_start * 1024
+        else:
+            flash_base = 0x08000000 + flash_reserve_start * 1024
         ext_flash_base = 0x90000000 + ext_flash_reserve_start * 1024
         if instruction_ram is not None:
             instruction_ram_base = instruction_ram[0]
@@ -1522,8 +1556,8 @@ INCLUDE common.ld
             sck_pin = self.bylabel['SPI%s_SCK' % n]
             sck_line = 'PAL_LINE(GPIO%s,%uU)' % (sck_pin.port, sck_pin.pin)
             f.write(
-                '#define HAL_SPI%u_CONFIG { &SPID%u, %u, STM32_SPI_SPI%u_DMA_STREAMS, %s }\n'
-                % (n, n, n, n, sck_line))
+                '#define HAL_SPI%u_CONFIG { &SPID%u, %u, %s_SPI_SPI%u_DMA_STREAMS, %s }\n'
+                % (n, n, n, self.mcu_prefix, n, sck_line))
         f.write('#define HAL_SPI_BUS_LIST %s\n\n' % ','.join(devlist))
         self.write_SPI_table(f)
 
@@ -1776,9 +1810,9 @@ INCLUDE common.ld
 
         if crash_uart is not None and self.get_config('FLASH_SIZE_KB', type=int) >= 2048:
             f.write('#define HAL_CRASH_SERIAL_PORT %s\n' % crash_uart)
-            f.write('#define IRQ_DISABLE_HAL_CRASH_SERIAL_PORT() nvicDisableVector(STM32_%s_NUMBER)\n' % crash_uart)
+            f.write('#define IRQ_DISABLE_HAL_CRASH_SERIAL_PORT() nvicDisableVector(%s_%s_NUMBER)\n' % (self.mcu_prefix, crash_uart))
             f.write('#define RCC_RESET_HAL_CRASH_SERIAL_PORT() rccReset%s(); rccEnable%s(true)\n' % (crash_uart, crash_uart))
-            f.write('#define HAL_CRASH_SERIAL_PORT_CLOCK STM32_%sCLK\n' % crash_uart)
+            f.write('#define HAL_CRASH_SERIAL_PORT_CLOCK %s_%sCLK\n' % (self.mcu_prefix, crash_uart))
         # check if we have a UART with a low noise RX pin
         for num, dev in enumerate(serial_list):
             if not dev.startswith('UART') and not dev.startswith('USART'):
@@ -1835,8 +1869,8 @@ INCLUDE common.ld
                 if self.mcu_series.startswith("STM32F1"):
                     f.write("%s, %s, %s, %s, " % (tx_line, rx_line, rts_line, cts_line))
                 else:
-                    f.write("STM32_%s_RX_DMA_CONFIG, STM32_%s_TX_DMA_CONFIG, %s, %s, %s, %s, " %
-                            (dev, dev, tx_line, rx_line, rts_line, cts_line))
+                    f.write("%s_%s_RX_DMA_CONFIG, %s_%s_TX_DMA_CONFIG, %s, %s, %s, %s, " %
+                            (self.mcu_prefix, dev, self.mcu_prefix, dev, tx_line, rx_line, rts_line, cts_line))
 
                 # add inversion pins, if any
                 f.write("%d, " % self.get_gpio_bylabel(dev + "_RXINV"))
@@ -1965,22 +1999,22 @@ INCLUDE common.ld
                 # I2Cv4 (STM32G0/G4/C0/U0/U3/H5/L4+) uses a single DMA
                 # channel for both TX and RX on each I2C peripheral
                 f.write('''
-#if defined(STM32_I2C_I2C%u_DMA_CHANNEL)
-#define HAL_I2C%u_CONFIG { &I2CD%u, %u, STM32_I2C_I2C%u_DMA_CHANNEL, SHARED_DMA_NONE, %s, %s }
+#if defined(%s_I2C_I2C%u_DMA_CHANNEL)
+#define HAL_I2C%u_CONFIG { &I2CD%u, %u, %s_I2C_I2C%u_DMA_CHANNEL, SHARED_DMA_NONE, %s, %s }
 #else
 #define HAL_I2C%u_CONFIG { &I2CD%u, %u, SHARED_DMA_NONE, SHARED_DMA_NONE, %s, %s }
 #endif
 '''
-                        % (n, n, n, n, n, scl_line, sda_line, n, n, n, scl_line, sda_line))
+                        % (self.mcu_prefix, n, n, n, n, self.mcu_prefix, n, scl_line, sda_line, n, n, n, scl_line, sda_line))
             else:
                 f.write('''
-#if defined(STM32_I2C_I2C%u_RX_DMA_STREAM) && defined(STM32_I2C_I2C%u_TX_DMA_STREAM)
-#define HAL_I2C%u_CONFIG { &I2CD%u, %u, STM32_I2C_I2C%u_RX_DMA_STREAM, STM32_I2C_I2C%u_TX_DMA_STREAM, %s, %s }
+#if defined(%s_I2C_I2C%u_RX_DMA_STREAM) && defined(%s_I2C_I2C%u_TX_DMA_STREAM)
+#define HAL_I2C%u_CONFIG { &I2CD%u, %u, %s_I2C_I2C%u_RX_DMA_STREAM, %s_I2C_I2C%u_TX_DMA_STREAM, %s, %s }
 #else
 #define HAL_I2C%u_CONFIG { &I2CD%u, %u, SHARED_DMA_NONE, SHARED_DMA_NONE, %s, %s }
 #endif
 '''
-                        % (n, n, n, n, n, n, n, scl_line, sda_line, n, n, n, scl_line, sda_line))
+                        % (self.mcu_prefix, n, self.mcu_prefix, n, n, n, n, self.mcu_prefix, n, self.mcu_prefix, n, scl_line, sda_line, n, n, n, scl_line, sda_line))
         f.write('\n')
         self.write_device_table(f, "i2c devices", "HAL_I2C_DEVICE_LIST", devlist)
 
@@ -2045,11 +2079,11 @@ INCLUDE common.ld
                     "Bad channel number, only channel 1 and 2 supported for RCIN")
             f.write('// RC input config\n')
             f.write('#define HAL_USE_ICU TRUE\n')
-            f.write('#define STM32_ICU_USE_TIM%u TRUE\n' % n)
+            f.write('#define %s_ICU_USE_TIM%u TRUE\n' % (self.mcu_prefix, n))
             f.write('#define RCIN_ICU_TIMER ICUD%u\n' % n)
             f.write('#define RCIN_ICU_CHANNEL ICU_CHANNEL_%u\n' % chan)
-            f.write('#define STM32_RCIN_DMA_STREAM STM32_TIM_TIM%u_CH%u_DMA_STREAM\n' % (n, chan))
-            f.write('#define STM32_RCIN_DMA_CHANNEL STM32_TIM_TIM%u_CH%u_DMA_CHAN\n' % (n, chan))
+            f.write('#define %s_RCIN_DMA_STREAM %s_TIM_TIM%u_CH%u_DMA_STREAM\n' % (self.mcu_prefix, self.mcu_prefix, n, chan))
+            f.write('#define %s_RCIN_DMA_CHANNEL %s_TIM_TIM%u_CH%u_DMA_CHAN\n' % (self.mcu_prefix, self.mcu_prefix, n, chan))
             f.write('\n')
 
         if rc_in_int is not None:
@@ -2058,7 +2092,7 @@ INCLUDE common.ld
                 self.error('Complementary channel is not supported for RCININT %s' % rc_in_int.label)
             f.write('// RC input config\n')
             f.write('#define HAL_USE_EICU TRUE\n')
-            f.write('#define STM32_EICU_USE_TIM%u TRUE\n' % n)
+            f.write('#define %s_EICU_USE_TIM%u TRUE\n' % (self.mcu_prefix, n))
             f.write('#define RCININT_EICU_TIMER EICUD%u\n' % n)
             f.write('#define RCININT_EICU_CHANNEL EICU_CHANNEL_%u\n' % chan)
             f.write('\n')
@@ -2069,8 +2103,8 @@ INCLUDE common.ld
                 self.error("Complementary channel is not supported for ALARM %s" % alarm.label)
             f.write('\n')
             f.write('// Alarm PWM output config\n')
-            f.write('#define STM32_PWM_USE_TIM%u TRUE\n' % n)
-            f.write('#define STM32_TIM%u_SUPPRESS_ISR\n' % n)
+            f.write('#define %s_PWM_USE_TIM%u TRUE\n' % (self.mcu_prefix, n))
+            f.write('#define %s_TIM%u_SUPPRESS_ISR\n' % (self.mcu_prefix, n))
 
             chan_mode = [
                 'PWM_OUTPUT_DISABLED', 'PWM_OUTPUT_DISABLED',
@@ -2115,8 +2149,8 @@ INCLUDE common.ld
                 f.write('#define HAL_%s_SHARED true\n' % t)
         for t in pwm_timers:
             n = int(t[3:])
-            f.write('#define STM32_PWM_USE_TIM%u TRUE\n' % n)
-            f.write('#define STM32_TIM%u_SUPPRESS_ISR\n' % n)
+            f.write('#define %s_PWM_USE_TIM%u TRUE\n' % (self.mcu_prefix, n))
+            f.write('#define %s_TIM%u_SUPPRESS_ISR\n' % (self.mcu_prefix, n))
         f.write('\n')
         f.write('// PWM output config\n')
         groups = []
@@ -2162,22 +2196,22 @@ INCLUDE common.ld
                 hal_icu_def = '\n'
                 for i in range(1, 5):
                     hal_icu_cfg += '{HAL_IC%u_CH%u_DMA_CONFIG},' % (n, i)
-                    hal_icu_def += '''#if defined(STM32_TIM_TIM%u_CH%u_DMA_STREAM) && defined(STM32_TIM_TIM%u_CH%u_DMA_CHAN)
-# define HAL_IC%u_CH%u_DMA_CONFIG true, STM32_TIM_TIM%u_CH%u_DMA_STREAM, STM32_TIM_TIM%u_CH%u_DMA_CHAN
+                    hal_icu_def += '''#if defined(%s_TIM_TIM%u_CH%u_DMA_STREAM) && defined(%s_TIM_TIM%u_CH%u_DMA_CHAN)
+# define HAL_IC%u_CH%u_DMA_CONFIG true, %s_TIM_TIM%u_CH%u_DMA_STREAM, %s_TIM_TIM%u_CH%u_DMA_CHAN
 #else
 # define HAL_IC%u_CH%u_DMA_CONFIG false, 0, 0
 #endif
-''' % (n, i, n, i, n, i, n, i, n, i, n, i)
+''' % (self.mcu_prefix, n, i, self.mcu_prefix, n, i, n, i, self.mcu_prefix, n, i, self.mcu_prefix, n, i, n, i, n, i)
                 if up_shared is not None:
                     hal_icu_cfg += '}, HAL_TIM%u_UP_SHARED, \\' % n
                 else:
                     hal_icu_cfg += '}, \\'
 
-            f.write('''#if defined(STM32_TIM_TIM%u_UP_DMA_STREAM) && defined(STM32_TIM_TIM%u_UP_DMA_CHAN)
-# define HAL_PWM%u_DMA_CONFIG true, STM32_TIM_TIM%u_UP_DMA_STREAM, STM32_TIM_TIM%u_UP_DMA_CHAN
+            f.write('''#if defined(%s_TIM_TIM%u_UP_DMA_STREAM) && defined(%s_TIM_TIM%u_UP_DMA_CHAN)
+# define HAL_PWM%u_DMA_CONFIG true, %s_TIM_TIM%u_UP_DMA_STREAM, %s_TIM_TIM%u_UP_DMA_CHAN
 #else
 # define HAL_PWM%u_DMA_CONFIG false, 0, 0
-#endif\n%s''' % (n, n, n, n, n, n, hal_icu_def))
+#endif\n%s''' % (self.mcu_prefix, n, self.mcu_prefix, n, n, self.mcu_prefix, n, self.mcu_prefix, n, n, hal_icu_def))
             f.write('''#if !defined(HAL_TIM%u_UP_SHARED)
 #define HAL_TIM%u_UP_SHARED false
 #endif\n''' % (n, n))
@@ -2207,7 +2241,7 @@ INCLUDE common.ld
                      pal_lines[0], pal_lines[1], pal_lines[2], pal_lines[3]))
         f.write('#define HAL_PWM_GROUPS %s\n\n' % ','.join(groups))
         if need_advanced:
-            f.write('#define STM32_PWM_USE_ADVANCED TRUE\n')
+            f.write('#define %s_PWM_USE_ADVANCED TRUE\n' % self.mcu_prefix)
 
     def write_ADC_config(self, f):
         '''write ADC config defines'''
@@ -2292,7 +2326,7 @@ INCLUDE common.ld
                         (chan, analog, scale_str, portpin, label))
             f.write('\n\n')
         if len(adc_chans[2]) > 0:
-            f.write('#define STM32_ADC_USE_ADC3 TRUE\n')
+            f.write('#define %s_ADC_USE_ADC3 TRUE\n' % self.mcu_prefix)
             f.write('#define HAL_ANALOG3_PINS \\\n')
             for (chan, analog, scale, label, portpin) in adc_chans[2]:
                 scale_str = '%.2f/4096' % vdd
@@ -2419,18 +2453,18 @@ Please run: Tools/scripts/build_bootloaders.py %s
         f.write('// peripherals enabled\n')
         for type in sorted(list(self.bytype.keys()) + list(self.alttype.keys())):
             if type.startswith('USART') or type.startswith('UART'):
-                dstr = 'STM32_SERIAL_USE_%-6s' % type
+                dstr = '%s_SERIAL_USE_%-6s' % (self.mcu_prefix, type)
                 f.write('#ifndef %s\n' % dstr)
                 f.write('#define %s TRUE\n' % dstr)
                 f.write('#endif\n')
             if type.startswith('SPI'):
-                f.write('#define STM32_SPI_USE_%s                  TRUE\n' % type)
+                f.write('#define %s_SPI_USE_%s                  TRUE\n' % (self.mcu_prefix, type))
             if type.startswith('I2C'):
-                f.write('#define STM32_I2C_USE_%s                  TRUE\n' % type)
+                f.write('#define %s_I2C_USE_%s                  TRUE\n' % (self.mcu_prefix, type))
             if type.startswith('QUADSPI'):
-                f.write('#define STM32_WSPI_USE_%s                 TRUE\n' % type)
+                f.write('#define %s_WSPI_USE_%s                 TRUE\n' % (self.mcu_prefix, type))
             if type.startswith('OCTOSPI'):
-                f.write('#define STM32_WSPI_USE_%s                 TRUE\n' % type)
+                f.write('#define %s_WSPI_USE_%s                 TRUE\n' % (self.mcu_prefix, type))
 
     def get_dma_exclude(self, periph_list):
         '''return list of DMA devices to exclude from DMA'''
@@ -2562,7 +2596,7 @@ Please run: Tools/scripts/build_bootloaders.py %s
 
         self.embed_bootloader(f)
 
-        if self.mcu_series.startswith('STM32F1'):
+        if self.mcu_series.startswith('STM32F1') or self.mcu_series.startswith('CH32'):
             f.write('''
 /*
  * I/O ports initial setup, this configuration is established soon after reset
@@ -2755,13 +2789,14 @@ Please run: Tools/scripts/build_bootloaders.py %s
     def write_processed_defaults_file(self):
         # see if board has a defaults.parm file or a --default-parameters file was specified
         defaults_filename = os.path.join(os.path.dirname(self.hwdef[0]), 'defaults.parm')
-        defaults_path = os.path.join(os.path.dirname(self.hwdef[0]), self.default_params_filepath)
 
         defaults_abspath = None
-        if os.path.exists(defaults_path):
-            defaults_abspath = os.path.abspath(self.default_params_filepath)
-            self.progress("Default parameters path from command line: %s" % self.default_params_filepath)
-        elif os.path.exists(defaults_filename):
+        if self.default_params_filepath:
+            defaults_path = os.path.join(os.path.dirname(self.hwdef[0]), self.default_params_filepath)
+            if os.path.exists(defaults_path):
+                defaults_abspath = os.path.abspath(self.default_params_filepath)
+                self.progress("Default parameters path from command line: %s" % self.default_params_filepath)
+        if defaults_abspath is None and os.path.exists(defaults_filename):
             defaults_abspath = os.path.abspath(defaults_filename)
             self.progress("Default parameters path from hwdef: %s" % defaults_filename)
 
@@ -2855,8 +2890,8 @@ Please run: Tools/scripts/build_bootloaders.py %s
 
             alt = p.extra_value("ALT", type=int, default=0)
             if alt != 0:
-                if self.mcu_series.startswith("STM32F1"):
-                    self.error("Alt config not allowed for F1 MCU")
+                if self.mcu_series.startswith("STM32F1") or self.mcu_series.startswith("CH32"):
+                    self.error("Alt config not allowed for F1/CH32 MCU")
                 if alt not in self.altmap:
                     self.altmap[alt] = {}
                 if p.portpin in self.altmap[alt]:

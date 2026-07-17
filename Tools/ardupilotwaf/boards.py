@@ -1135,6 +1135,29 @@ class chibios(Board):
     abstract = True
     toolchain = 'arm-none-eabi'
 
+    def configure(self, cfg):
+        # detect RISC-V boards early by reading hwdef.dat
+        if not cfg.options.toolchain and hasattr(self, 'name'):
+            import os
+            hwdef_path = os.path.join(cfg.srcnode.abspath(),
+                                      'libraries/AP_HAL_ChibiOS/hwdef/%s/hwdef.dat' % self.name)
+            if os.path.exists(hwdef_path):
+                with open(hwdef_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('#') or not line:
+                            continue
+                        parts = line.split()
+                        if len(parts) >= 3 and parts[0] == 'MCU':
+                            if parts[1].startswith('CH32'):
+                                self.toolchain = 'riscv-wch-elf'
+                            break
+        super(chibios, self).configure(cfg)
+
+    def _is_riscv_board(self, cfg):
+        '''check if the board uses a RISC-V MCU'''
+        return cfg.env.TOOLCHAIN == 'riscv-wch-elf'
+
     def configure_env(self, cfg, env):
         if hasattr(self, 'hwdef'):
             cfg.env.HWDEF = self.hwdef
@@ -1156,7 +1179,46 @@ class chibios(Board):
         # make board name available for USB IDs
         env.CHIBIOS_BOARD_NAME = 'HAL_BOARD_NAME="%s"' % self.name
         env.HAL_MAX_STACK_FRAME_SIZE = 'HAL_MAX_STACK_FRAME_SIZE=%d' % 1300 # set per Wframe-larger-than, ensure its same
-        env.CFLAGS += cfg.env.CPU_FLAGS + [
+
+        is_riscv = self._is_riscv_board(cfg)
+
+        if is_riscv:
+            env.CFLAGS += cfg.env.CPU_FLAGS + [
+                '-Wlogical-op',
+                '-Wframe-larger-than=1300',
+                '-Wno-attributes',
+                '-fno-exceptions',
+                '-Wall',
+                '-Wextra',
+                '-Wno-sign-compare',
+                '-Wfloat-equal',
+                '-Wpointer-arith',
+                '-Wmissing-declarations',
+                '-Wno-unused-parameter',
+                '-Werror=array-bounds',
+                '-Wfatal-errors',
+                '-Werror=uninitialized',
+                '-Werror=init-self',
+                '-Werror=unused-but-set-variable',
+                '-Wno-missing-field-initializers',
+                '-Wno-trigraphs',
+                '-fno-strict-aliasing',
+                '-fomit-frame-pointer',
+                '-falign-functions=16',
+                '-ffunction-sections',
+                '-fdata-sections',
+                '-fno-strength-reduce',
+                '-fno-builtin-printf',
+                '-fno-builtin-fprintf',
+                '-fno-builtin-vprintf',
+                '-fno-builtin-vfprintf',
+                '-fno-builtin-puts',
+                '-fno-math-errno',
+                '-Werror=deprecated-declarations',
+                '-DNDEBUG=1'
+            ]
+        else:
+            env.CFLAGS += cfg.env.CPU_FLAGS + [
             '-Wlogical-op',
             '-Wframe-larger-than=1300',
             '-Wno-attributes',
@@ -1217,29 +1279,49 @@ class chibios(Board):
         bldnode = cfg.bldnode.make_node(self.name)
         env.BUILDROOT = bldnode.make_node('').abspath()
 
-        env.LINKFLAGS = cfg.env.CPU_FLAGS + [
-            '-fomit-frame-pointer',
-            '-falign-functions=16',
-            '-ffunction-sections',
-            '-fdata-sections',
-            '-u_port_lock',
-            '-u_port_unlock',
-            '-u_exit',
-            '-u_kill',
-            '-u_getpid',
-            '-u_errno',
-            '-uchThdExit',
-            '-fno-common',
-            '-nostartfiles',
-            '-mno-thumb-interwork',
-            '-mthumb',
-            '--specs=nano.specs',
-            '--specs=nosys.specs',
-            '-L%s' % env.BUILDROOT,
-            '-L%s' % cfg.srcnode.make_node('modules/ChibiOS/os/common/startup/ARMCMx/compilers/GCC/ld/').abspath(),
-            '-L%s' % cfg.srcnode.make_node('libraries/AP_HAL_ChibiOS/hwdef/common/').abspath(),
-            '-Wl,-Map,Linker.map,%s--cref,--gc-sections,--no-warn-mismatch,--library-path=/ld,--script=ldscript.ld,--defsym=__process_stack_size__=%s,--defsym=__main_stack_size__=%s' % ("--print-memory-usage," if cfg.env.EXT_FLASH_SIZE_MB > 0 and cfg.env.INT_FLASH_PRIMARY == 0 else "", cfg.env.PROCESS_STACK, cfg.env.MAIN_STACK)
-        ]
+        if is_riscv:
+            env.LINKFLAGS = cfg.env.CPU_FLAGS + [
+                '-fomit-frame-pointer',
+                '-falign-functions=16',
+                '-ffunction-sections',
+                '-fdata-sections',
+                '-u_port_lock',
+                '-u_port_unlock',
+                '-u_exit',
+                '-u_kill',
+                '-u_getpid',
+                '-u_errno',
+                '-uchThdExit',
+                '-fno-common',
+                '-nostartfiles',
+                '-L%s' % env.BUILDROOT,
+                '-L%s' % cfg.srcnode.make_node('libraries/AP_HAL_ChibiOS/hwdef/common/').abspath(),
+                '-Wl,-Map,Linker.map,%s--cref,--gc-sections,--no-warn-mismatch,--library-path=/ld,--script=ldscript.ld,--defsym=__process_stack_size__=%s,--defsym=__main_stack_size__=%s' % ("--print-memory-usage," if cfg.env.EXT_FLASH_SIZE_MB > 0 and cfg.env.INT_FLASH_PRIMARY == 0 else "", cfg.env.PROCESS_STACK, cfg.env.MAIN_STACK)
+            ]
+        else:
+            env.LINKFLAGS = cfg.env.CPU_FLAGS + [
+                '-fomit-frame-pointer',
+                '-falign-functions=16',
+                '-ffunction-sections',
+                '-fdata-sections',
+                '-u_port_lock',
+                '-u_port_unlock',
+                '-u_exit',
+                '-u_kill',
+                '-u_getpid',
+                '-u_errno',
+                '-uchThdExit',
+                '-fno-common',
+                '-nostartfiles',
+                '-mno-thumb-interwork',
+                '-mthumb',
+                '--specs=nano.specs',
+                '--specs=nosys.specs',
+                '-L%s' % env.BUILDROOT,
+                '-L%s' % cfg.srcnode.make_node('modules/ChibiOS/os/common/startup/ARMCMx/compilers/GCC/ld/').abspath(),
+                '-L%s' % cfg.srcnode.make_node('libraries/AP_HAL_ChibiOS/hwdef/common/').abspath(),
+                '-Wl,-Map,Linker.map,%s--cref,--gc-sections,--no-warn-mismatch,--library-path=/ld,--script=ldscript.ld,--defsym=__process_stack_size__=%s,--defsym=__main_stack_size__=%s' % ("--print-memory-usage," if cfg.env.EXT_FLASH_SIZE_MB > 0 and cfg.env.INT_FLASH_PRIMARY == 0 else "", cfg.env.PROCESS_STACK, cfg.env.MAIN_STACK)
+            ]
 
         if cfg.env.DEBUG:
             env.CFLAGS += [
