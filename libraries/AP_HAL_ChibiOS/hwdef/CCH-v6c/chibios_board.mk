@@ -5,7 +5,7 @@
 
 # Compiler options here.
 ifeq ($(USE_OPT),)
-  USE_OPT = -fomit-frame-pointer -falign-functions=16
+  USE_OPT = -fomit-frame-pointer -falign-functions=16 -Wno-error=comment
 endif
 
 ifeq ($(ENABLE_DEBUG_SYMBOLS), yes)
@@ -127,6 +127,23 @@ endif
 # C sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
 
+RISCV_MATH_LIB_DIR = $(HWDEF)/CCH-v6c/DSP
+RISCV_MATH_LIB_INC = $(RISCV_MATH_LIB_DIR) \
+                     $(RISCV_MATH_LIB_DIR)/Core/Include \
+                     $(RISCV_MATH_LIB_DIR)/Include \
+                     $(RISCV_MATH_LIB_DIR)/PrivateInclude
+RISCV_MATH_LIB_SRC = $(RISCV_MATH_LIB_DIR)/Source/BasicMathFunctions/BasicMathFunctions.c \
+                     $(RISCV_MATH_LIB_DIR)/Source/CommonTables/CommonTables.c \
+                     $(RISCV_MATH_LIB_DIR)/Source/ComplexMathFunctions/ComplexMathFunctions.c \
+                     $(RISCV_MATH_LIB_DIR)/Source/FastMathFunctions/FastMathFunctions.c \
+                     $(RISCV_MATH_LIB_DIR)/Source/FilteringFunctions/FilteringFunctions.c \
+                     $(RISCV_MATH_LIB_DIR)/Source/MatrixFunctions/MatrixFunctions.c \
+                     $(RISCV_MATH_LIB_DIR)/Source/StatisticsFunctions/StatisticsFunctions.c \
+                     $(RISCV_MATH_LIB_DIR)/Source/SupportFunctions/SupportFunctions.c \
+                     $(RISCV_MATH_LIB_DIR)/Source/TransformFunctions/TransformFunctions.c
+
+# RISC-V arch flags now handled in chibios_common.mk
+
 CSRC = $(sort $(ALLCSRC))
 
 CSRC += $(HWDEF)/CCH-v6c/stubs.c \
@@ -137,7 +154,10 @@ CSRC += $(HWDEF)/CCH-v6c/stubs.c \
         $(HWDEF)/CCH-v6c/malloc.c \
         $(HWDEF)/CCH-v6c/hrt.c \
         $(HWDEF)/CCH-v6c/watchdog.c \
-        $(HWDEF)/CCH-v6c/sysperf.c
+        $(HWDEF)/CCH-v6c/sysperf.c \
+        $(HWDEF)/CCH-v6c/bouncebuffer.c \
+        $(HWDEF)/CCH-v6c/ch32_util.c \
+        $(RISCV_MATH_LIB_SRC)
 
 ifeq ($(USE_USB_MSD),yes)
 CSRC += $(CHIBIOS)/os/various/scsi_bindings/lib_scsi.c \
@@ -185,7 +205,7 @@ ASMSRC = $(ALLASMSRC)
 ASMXSRC = $(ALLXASMSRC)
 
 INCDIR = $(CHIBIOS)/os/license \
-         $(ALLINC) $(HWDEF)/CCH-v6c
+         $(ALLINC) $(HWDEF)/CCH-v6c $(RISCV_MATH_LIB_INC)
 
 ifneq ($(CRASHCATCHER),)
 INCDIR += $(CRASHCATCHER)/include
@@ -242,7 +262,9 @@ CPPWARN = -Wall -Wextra -Wundef
 UDEFS = $(ENV_UDEFS) $(FATFS_FLAGS) -DHAL_BOARD_NAME=\"$(HAL_BOARD_NAME)\" \
         -DHAL_MAX_STACK_FRAME_SIZE=$(HAL_MAX_STACK_FRAME_SIZE) \
         -Wno-error=unused-function \
-        -Wno-error=unused-parameter
+        -Wno-error=unused-parameter \
+        -Wno-error=cast-align \
+        -Wno-error=comment
 
 ifeq ($(ENABLE_ASSERTS),yes)
  UDEFS += -DHAL_CHIBIOS_ENABLE_ASSERTS

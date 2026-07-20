@@ -35,17 +35,37 @@
 /*===========================================================================*/
 
 /**
- * @brief   STM32 GPIO static initialization data.
+ * @brief   CH32H417 GPIO static initialization data.
+ * @details CH32H417 uses F1-style GPIO config: {ODR, CFGLR, CFGHR} per port.
  */
 #if defined(WCH)
 
-/*===========================================================================*/
-/* CH32H417 GPIO initialization.                                              */
-/*===========================================================================*/
+const PALConfig pal_default_config =
+{
+    {
+#if (CH32_HAS_GPIOA == TRUE)
+  {0x00000000, 0x44444444, 0x44444444},
+#endif
+#if (CH32_HAS_GPIOB == TRUE)
+  {0x00000000, 0x44444444, 0x44444444},
+#endif
+#if (CH32_HAS_GPIOC == TRUE)
+  {0x00000000, 0x44444444, 0x44444444},
+#endif
+#if (CH32_HAS_GPIOD == TRUE)
+  {0x00000000, 0x44444444, 0x44444444},
+#endif
+#if (CH32_HAS_GPIOE == TRUE)
+  {0x00000000, 0x44444444, 0x44444444},
+#endif
+#if (CH32_HAS_GPIOF == TRUE)
+  {0x00000000, 0x44444444, 0x44444444},
+#endif
+    }
+};
 
 static void stm32_gpio_init(void) {
-  /* Enable GPIO clocks via CH32 RCC register */
-  RCC->HB2PCENR |= CH32_GPIO_EN_MASK;
+  enableHB2(CH32_GPIO_EN_MASK);
 }
 
 #elif defined(STM32F100_MCUCONF) || defined(STM32F103_MCUCONF) || defined(STM32F105_MCUCONF)

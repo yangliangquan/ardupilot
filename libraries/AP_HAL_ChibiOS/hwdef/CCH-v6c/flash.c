@@ -274,7 +274,7 @@ static void stm32_flash_wait_idle(void)
 static void stm32_flash_clear_errors(void)
 {
 #ifdef WCH
-    (void)FLASH->STATR;
+    FLASH->STATR = ~0;
 #elif defined(STM32H7)
     FLASH->CCR1 = ~0;
 #if STM32_FLASH_NBANKS > 1
@@ -619,6 +619,8 @@ bool stm32_flash_erasepage(uint32_t page)
     FLASH->CTLR |= FLASH_CTLR_PER;
     FLASH->ADDR = stm32_flash_getpageaddr(page);
     FLASH->CTLR |= FLASH_CTLR_STRT;
+    stm32_flash_wait_idle();
+    FLASH->CTLR &= ~FLASH_CTLR_PER;
 #elif defined(STM32F1) || defined(STM32F3)
     FLASH->CR = FLASH_CR_PER;
     FLASH->AR = stm32_flash_getpageaddr(page);
@@ -1025,13 +1027,12 @@ static bool stm32_flash_write_ch32(uint32_t addr, const void *buf, uint32_t coun
 {
     const uint8_t *b = (const uint8_t *)buf;
 
-    /* CH32H417 requires half-word access */
-    if (count & 1) {
+    if ((addr+count) > STM32_FLASH_BASE+STM32_FLASH_SIZE) {
         _flash_fail_line = __LINE__;
         return false;
     }
 
-    if ((addr+count) > STM32_FLASH_BASE+STM32_FLASH_SIZE) {
+    if ((count & 0xFF) || (addr & 0xFF)) {
         _flash_fail_line = __LINE__;
         return false;
     }
@@ -1041,19 +1042,35 @@ static bool stm32_flash_write_ch32(uint32_t addr, const void *buf, uint32_t coun
 #endif
 
     stm32_flash_unlock();
+
+    FLASH->MODEKEYR = FLASH_KEY1;
+    FLASH->MODEKEYR = FLASH_KEY2;
+
     stm32_flash_wait_idle();
 
-    while (count >= 2) {
-        FLASH->CTLR |= FLASH_CTLR_PG;
+    while (count >= 256) {
+        const uint32_t *v = (const uint32_t *)b;
+        uint32_t page_addr = addr;
+        uint8_t size = 64;
 
-        putreg16(*(uint16_t *)b, addr);
+        FLASH->CTLR |= FLASH_CTLR_PAGE_PG;
+        while (FLASH->STATR & FLASH_STATR_BSY) ;
+        while (FLASH->STATR & FLASH_STATR_WRBSY) ;
 
-        __DSB();
-        stm32_flash_wait_idle();
+        while (size) {
+            *(uint32_t *)page_addr = *v;
+            page_addr += 4;
+            v += 1;
+            size -= 1;
+            __asm("fence");
+            while (FLASH->STATR & FLASH_STATR_WRBSY) ;
+        }
 
-        FLASH->CTLR &= ~FLASH_CTLR_PG;
+        FLASH->CTLR |= FLASH_CTLR_PG_STRT;
+        while (FLASH->STATR & FLASH_STATR_BSY) ;
+        FLASH->CTLR &= ~FLASH_CTLR_PAGE_PG;
 
-        if (getreg16(addr) != *(uint16_t *)b) {
+        if (memcmp((void*)addr, b, 256) != 0) {
             _flash_fail_line = __LINE__;
             _flash_fail_addr = addr;
             _flash_fail_count = count;
@@ -1061,9 +1078,9 @@ static bool stm32_flash_write_ch32(uint32_t addr, const void *buf, uint32_t coun
             goto ch32_failed;
         }
 
-        count -= 2;
-        b += 2;
-        addr += 2;
+        count -= 256;
+        b += 256;
+        addr += 256;
     }
 
     stm32_flash_lock();

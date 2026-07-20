@@ -13,20 +13,39 @@ build = {
 
 # MCU parameters
 mcu = {
-    # CH32H417 has 512KB SRAM total shared between code and data.
-    # Memory map:
-    #   ITCM_BASE = 0x200A0000 (ITCM)
-    #   DTCM_BASE = 0x200C0000 (DTCM)
-    #   SRAM_BASE = 0x20100000 (general SRAM)
-    # The usable RAM for ArduPilot firmware data is mapped starting at 0x20000000.
+    # CH32H417 SRAM regions:
+    #   ITCM       = 0x200A0000, 128KB (fast code execution, tightly coupled) -- INSTRUCTION_RAM
+    #   DTCM       = 0x200C0000, 256KB (fast data, tightly coupled)          -- DATA_RAM
+    #   SRAM2/XIP  = 0x20100000, 512KB (DMA-capable, flash operation RAM)    -- FLASH_RAM
     # ram map, as list of (address, size-kb, flags)
     # flags of 1 means DMA-capable
     # flags of 2 means faster memory for CPU intensive work
     # flags of 4 means memory can be used for SDMMC DMA
     'RAM_MAP' : [
-        (0x20000000, 256, 1),  # SRAM region 1
-        (0x20040000, 256, 2),  # SRAM region 2
+        (0x20100000, 512, 1),  # FLASH_RAM (SRAM2) - DMA-capable, flash operation RAM
+        (0x200C0000, 256, 2),  # DATA_RAM (DTCM) - fast data access (vtables, etc.)
+        (0x200A0000, 128, 2),  # INSTRUCTION_RAM (ITCM) - fast code execution
     ],
+
+    # same RAM layout when running from external flash
+    # First region must be DMA-capable for XIP boot (FLASH_RAM)
+    'RAM_MAP_EXTERNAL_FLASH' : [
+        (0x20100000, 512, 1),  # FLASH_RAM (SRAM2) - DMA-capable, flash operation RAM
+        (0x200C0000, 256, 2),  # DATA_RAM (DTCM) - fast data access (vtables, etc.)
+        (0x200A0000, 128, 2),  # INSTRUCTION_RAM (ITCM) - fast code execution
+    ],
+
+    # RAM layout for bootloader (DTCM first to avoid DCache issues, matching STM32H7 pattern)
+    'RAM_MAP_BOOTLOADER' : [
+        (0x200C0000, 256, 2),  # DATA_RAM (DTCM) - fast data access (vtables, etc.)
+        (0x20100000, 512, 1),  # FLASH_RAM (SRAM2) - DMA-capable, flash operation RAM
+        (0x200A0000, 128, 2),  # INSTRUCTION_RAM (ITCM) - fast code execution
+    ],
+
+    # memory regions for external flash XIP linker script
+    'INSTRUCTION_RAM' : (0x200A0000, 128),   # ITCM for fast code execution
+    'FLASH_RAM' :       (0x20100000, 512),   # SRAM2 for RAM functions and process stack, DMA-capable
+    'DATA_RAM' :        (0x200C0000, 256),   # DTCM for fast data (vtables, etc.)
 
     'EXPECTED_CLOCK' : 100000000,
 

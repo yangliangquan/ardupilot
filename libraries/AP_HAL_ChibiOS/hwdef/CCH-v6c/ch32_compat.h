@@ -162,10 +162,6 @@
 #define AP_FASTBOOT_ENABLED 1
 #endif
 
-#ifndef CC_NO_INLINE
-#define CC_NO_INLINE __attribute__((always_inline))
-#endif
-
 /* I2C_ISR_LIMIT - CH32 I2C driver does not have this feature, set to 0 to disable */
 #ifndef I2C_ISR_LIMIT
 #define I2C_ISR_LIMIT                     0

@@ -103,9 +103,9 @@ ADEFS 	  := $(DADEFS) $(UADEFS)
 # Libs
 LIBS      := $(DLIBS) $(ULIBS)
 
-# Various settings - RISC-V uses march/mabi from CPU_FLAGS not -mcpu
+# Various settings - RISC-V uses -march/-mabi instead of -mcpu
 ifeq ($(MCU),riscv)
-  MCFLAGS   :=
+  MCFLAGS   := -march=rv32imafc -mabi=ilp32f -mcmodel=medlow
 else
   MCFLAGS   := -mcpu=$(MCU)
 endif

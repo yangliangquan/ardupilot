@@ -3,7 +3,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+#include "mcuconf.h"
 /*
   setup the watchdog
  */

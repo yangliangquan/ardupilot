@@ -21,6 +21,9 @@
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_InternalError/AP_InternalError.h>
 #include "hwdef/common/watchdog.h"
+#ifdef __riscv
+#include "mcuconf.h"
+#endif
 #ifdef WCH
 #include "ch32_util.h"
 #else

@@ -423,3 +423,10 @@ const SerialUSBConfig serusbcfg1 = {
   USBD1_DATA_AVAILABLE_EP,
   USBD1_INTERRUPT_REQUEST_EP
 };
+
+/*
+  setup USB strings - no-op for single CDC, strings are hardcoded above
+ */
+void setup_usb_strings(void)
+{
+}

@@ -1389,9 +1389,13 @@ class chibios(Board):
         ]
 
         env.INCLUDES += [
-            cfg.srcnode.find_dir('libraries/AP_GyroFFT/CMSIS_5/include').abspath(),
             cfg.srcnode.find_dir('modules/lwip/src/include/compat/posix').abspath()
         ]
+        # CMSIS_5 arm_math.h is ARM-only; RISC-V boards use their own DSP library
+        if 'riscv' not in cfg.env.TOOLCHAIN:
+            env.INCLUDES += [
+                cfg.srcnode.find_dir('libraries/AP_GyroFFT/CMSIS_5/include').abspath(),
+            ]
 
         # whitelist of compilers which we should build with -Werror
         gcc_whitelist = frozenset([

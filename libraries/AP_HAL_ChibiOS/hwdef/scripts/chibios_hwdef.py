@@ -1461,7 +1461,13 @@ INCLUDE common.ld
                 linker = 'common_mixf.ld'
             else:
                 linker = 'common_extf.ld'
-        shutil.copy(os.path.join(dirpath, "../common", linker), outpath)
+        # Check for board-specific linker script first
+        board_dir = os.path.dirname(os.path.realpath(self.hwdef[0]))
+        board_linker = os.path.join(board_dir, linker)
+        if os.path.exists(board_linker):
+            shutil.copy(board_linker, outpath)
+        else:
+            shutil.copy(os.path.join(dirpath, "../common", linker), outpath)
 
     def get_USB_IDs(self):
         '''return tuple of USB VID/PID'''

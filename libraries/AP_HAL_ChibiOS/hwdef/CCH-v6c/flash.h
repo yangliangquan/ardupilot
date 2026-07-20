@@ -20,6 +20,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include "mcuconf.h"
 uint32_t stm32_flash_getpageaddr(uint32_t page);
 uint32_t stm32_flash_getpagesize(uint32_t page);
 uint32_t stm32_flash_getnumpages(void);
