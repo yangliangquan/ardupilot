@@ -1427,6 +1427,7 @@ class chibios_riscv(chibios):
         arm_only = ['-mno-thumb-interwork', '-mthumb',
                     '-u_port_lock', '-u_port_unlock']
         env.CFLAGS = [f for f in env.CFLAGS if f not in arm_only]
+        env.CXXFLAGS = [f for f in env.CXXFLAGS if f not in arm_only]
         env.LINKFLAGS = [f for f in env.LINKFLAGS if f not in arm_only]
         # drop the ARM-specific startup ld path
         env.LINKFLAGS = [f for f in env.LINKFLAGS if 'ARMCMx' not in f]

@@ -655,6 +655,12 @@ def configure(cfg):
 
     if env.DEBUG or env.DEBUG_SYMBOLS:
         env.CHIBIOS_BUILD_FLAGS += ' ENABLE_DEBUG_SYMBOLS=yes'
+    if env.BOOTLOADER:
+        # the bootloader runs from internal flash with the WCH crt0
+        env.CHIBIOS_BUILD_FLAGS += ' CHIBIOS_BOOT_BUILD=yes'
+    else:
+        # the app runs from external flash with the XIP-aware AP crt0
+        env.CHIBIOS_BUILD_FLAGS += ' CHIBIOS_BOOT_BUILD=no'
     if env.ENABLE_ASSERTS:
         env.CHIBIOS_BUILD_FLAGS += ' ENABLE_ASSERTS=yes'
     if env.ENABLE_MALLOC_GUARD:
@@ -822,11 +828,15 @@ def build(bld):
                  'fopen', 'fflush', 'fwrite', 'fread', 'fputs', 'fgets',
                  'clearerr', 'fseek', 'ferror', 'fclose', 'tmpfile', 'getc', 'ungetc', 'feof',
                 'ftell', 'freopen', 'remove', 'vfprintf', 'vfprintf_r', 'fscanf',
-                '_gettimeofday', '_times', '_times_r', '_gettimeofday_r', 'time', 'clock',
-                'setjmp']
+                '_gettimeofday', '_times', '_times_r', '_gettimeofday_r', 'time', 'clock']
 
     # these functions use global state that is not thread safe
     blacklist += ['gmtime']
+
+    # the Lua engine uses setjmp longjmp on the RISC-V targets; keep the
+    # real symbol there
+    if bld.env.TOOLCHAIN.find('riscv') == -1:
+        blacklist += ['setjmp']
 
     for w in wraplist + blacklist:
         bld.env.LINKFLAGS += ['-Wl,--wrap,%s' % w]
