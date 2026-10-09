@@ -28,6 +28,18 @@
 #include <AP_Common/ExpandingString.h>
 #include "Scheduler.h"
 #include "hwdef/common/stm32_util.h"
+#include <GCS_MAVLink/GCS_MAVLink.h>
+#if defined(CH32H417)
+// WCH USART register names differ; alias them file-locally (the WCH
+// field names have no conflicts inside this file)
+#define RDR                 DATAR
+#define TDR                 DATAR
+#define DR                  DATAR
+#define SR                  STATR
+#define CR1                 CTLR1
+#define CR2                 CTLR2
+#define CR3                 CTLR3
+#endif
 // MAVLink is included to use the MAV_POWER flags for the USB power
 #include <GCS_MAVLink/GCS_MAVLink.h>
 
@@ -450,7 +462,11 @@ void UARTDriver::_begin(uint32_t b, uint16_t rxS, uint16_t txS)
                 }
             }
 #endif // HAL_UART_NODMA
+#if defined(CH32H417)
+            sercfg.baud = _baudrate;
+#else
             sercfg.speed = _baudrate;
+#endif
 
             // start with options from set_options()
             sercfg.cr1 = _cr1_options;
@@ -603,10 +619,9 @@ void UARTDriver::rx_irq_cb(void* self)
 #if defined(STM32F7) || defined(STM32H7)
     //disable dma, triggering DMA transfer complete interrupt
     uart_drv->rxdma->stream->CR &= ~STM32_DMA_CR_EN;
-#elif defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
+#elif defined(CH32H417)
     //disable dma, triggering DMA transfer complete interrupt
     dmaStreamDisable(uart_drv->rxdma);
-    uart_drv->rxdma->channel->CCR &= ~STM32_DMA_CR_EN;
 #else
     volatile uint16_t sr = ((SerialDriver*)(uart_drv->sdef.serial))->usart->SR;
     if(sr & USART_SR_IDLE) {
@@ -1176,7 +1191,9 @@ void UARTDriver::_rx_timer_tick(void)
         //Check if DMA is enabled
         //if not, it might be because the DMA interrupt was silenced
         //let's handle that here so that we can continue receiving
-#if defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
+#if defined(CH32H417)
+        bool enabled = (rxdma->channel->CFGR & DMA_CFGR1_EN);
+#elif defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
         bool enabled = (rxdma->channel->CCR & STM32_DMA_CR_EN);
 #else
         bool enabled = (rxdma->stream->CR & STM32_DMA_CR_EN);

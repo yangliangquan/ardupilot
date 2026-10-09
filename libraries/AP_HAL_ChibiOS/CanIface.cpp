@@ -678,7 +678,10 @@ void CANIface::initOnce(bool enable_irq)
         CriticalSectionLocker lock;
         switch (can_interfaces[self_index_]) {
         case 0:
-#if defined(RCC_APB1ENR1_CAN1EN)
+#if defined(CH32H417)
+            enableHB1(RCC_CAN1EN);
+            resetHB1(RCC_CAN1RST);
+#elif defined(RCC_APB1ENR1_CAN1EN)
             RCC->APB1ENR1 |=  RCC_APB1ENR1_CAN1EN;
             RCC->APB1RSTR1 |=  RCC_APB1RSTR1_CAN1RST;
             RCC->APB1RSTR1 &= ~RCC_APB1RSTR1_CAN1RST;
@@ -694,18 +697,29 @@ void CANIface::initOnce(bool enable_irq)
             RCC->APB1RSTR1 |=  RCC_APB1RSTR1_CAN2RST;
             RCC->APB1RSTR1 &= ~RCC_APB1RSTR1_CAN2RST;
             break;
-#elif defined(RCC_APB1ENR_CAN2EN)
+#elif defined(CH32H417) || defined(RCC_APB1ENR_CAN2EN)
         case 1:
+#if defined(CH32H417)
+            enableHB1(RCC_CAN1EN); /* CAN2 requires CAN1 */
+            enableHB1(RCC_CAN2EN);
+            resetHB1(RCC_CAN2RST);
+#else
             RCC->APB1ENR  |=  RCC_APB1ENR_CAN2EN;
             RCC->APB1RSTR |=  RCC_APB1RSTR_CAN2RST;
             RCC->APB1RSTR &= ~RCC_APB1RSTR_CAN2RST;
+#endif
             break;
 #endif
-#ifdef RCC_APB1ENR_CAN3EN
+#if defined(CH32H417) || defined(RCC_APB1ENR_CAN3EN)
         case 2:
+#if defined(CH32H417)
+            enableHB1(RCC_CAN3EN);
+            resetHB1(RCC_CAN3RST);
+#else
             RCC->APB1ENR  |=  RCC_APB1ENR_CAN3EN;
             RCC->APB1RSTR |=  RCC_APB1RSTR_CAN3RST;
             RCC->APB1RSTR &= ~RCC_APB1RSTR_CAN3RST;
+#endif
             break;
 #endif
         }

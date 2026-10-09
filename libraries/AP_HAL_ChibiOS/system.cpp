@@ -44,7 +44,9 @@ static_assert(sizeof(systime_t) == 4, "expected 32 bit systime_t");
 static_assert(sizeof(systime_t) == sizeof(sysinterval_t), "expected systime_t same size as sysinterval_t");
 
 #if defined(HAL_EXPECTED_SYSCLOCK)
-#ifdef STM32_SYS_CK
+#if defined(CH32H417)
+/* the clock values are resolved at runtime on the CH32 port */
+#elif defined(STM32_SYS_CK)
 static_assert(HAL_EXPECTED_SYSCLOCK == STM32_SYS_CK, "unexpected STM32_SYS_CK value got " XSTR(STM32_HCLK) " expected " XSTR(HAL_EXPECTED_SYSCLOCK));
 #elif defined(STM32_HCLK)
 static_assert(HAL_EXPECTED_SYSCLOCK == STM32_HCLK, "unexpected STM32_HCLK value got " XSTR(STM32_HCLK) " expected " XSTR(HAL_EXPECTED_SYSCLOCK));
@@ -92,7 +94,19 @@ extern "C"
 #define MemManage_Handler AP_MemManage_Handler
 #endif
 
-#if !AP_CRASHDUMP_ENABLED
+#if !AP_CRASHDUMP_ENABLED && defined(CH32H417)
+/* QingKe trap handling is done by the ChibiOS port; the ARM Cortex
+   fault handlers do not exist. TODO(CH32): add a trap handler that
+   performs the same state capture */
+void HardFault_Handler(void) __attribute__((weak));
+void HardFault_Handler(void) { while(1) {} }
+void BusFault_Handler(void) __attribute__((weak));
+void BusFault_Handler(void) { while(1) {} }
+void UsageFault_Handler(void) __attribute__((weak));
+void UsageFault_Handler(void) { while(1) {} }
+void MemManage_Handler(void) __attribute__((weak));
+void MemManage_Handler(void) { while(1) {} }
+#elif !AP_CRASHDUMP_ENABLED  && !defined(CH32H417)
 // do legacy hardfault handling
 void HardFault_Handler(void);
 void HardFault_Handler(void) {
@@ -283,7 +297,9 @@ void save_fault_watchdog(uint16_t line, FaultType fault_type, uint32_t fault_add
                     strncpy_noterm(pd.thread_name4, tp->name, 4);
                 }
             }
+#if !defined(CH32H417)
             pd.fault_icsr = SCB->ICSR;
+#endif
             pd.fault_lr = lr;
         }
         stm32_watchdog_save((uint32_t *)&hal.util->persistent_data, (sizeof(hal.util->persistent_data)+3)/4);

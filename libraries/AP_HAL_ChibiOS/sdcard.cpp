@@ -35,10 +35,16 @@ static bool sdcard_running;
 #endif
 
 #if HAL_USE_SDC
+#if defined(CH32H417)
+static SDCConfig sdcconfig = {
+  SDC_MODE_4BIT
+};
+#else
 static SDCConfig sdcconfig = {
   SDC_MODE_4BIT,
   0
 };
+#endif
 #elif HAL_USE_MMC_SPI
 MMCDriver MMCD1;
 static AP_HAL::SPIDevice *device;
@@ -59,6 +65,10 @@ bool sdcard_init_raw(uint8_t sd_slowdown, uint8_t tries)
     auto &sdcd = SDCD1;
 #endif
 
+#if defined(CH32H417)
+    // TODO(CH32): the WCH SDIO driver does not support bouncebuffers;
+    // DMA buffer coherency is handled by the FAT driver layer
+#else
     if (sdcd.bouncebuffer == nullptr) {
         // allocate 4k-32k bouncebuffer for microSD to match size in
         // AP_Logger
@@ -86,13 +96,16 @@ bool sdcard_init_raw(uint8_t sd_slowdown, uint8_t tries)
             return false;
         }
     }
+#endif
 
     if (sdcard_running) {
         sdcard_stop();
     }
 
     for (uint8_t i=0; i<tries; i++) {
+#if !defined(CH32H417)
         sdcconfig.slowdown = sd_slowdown;
+#endif
         sdcStart(&sdcd, &sdcconfig);
         if(sdcConnect(&sdcd) == HAL_FAILED) {
             sdcStop(&sdcd);

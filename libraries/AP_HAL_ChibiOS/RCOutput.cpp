@@ -1477,7 +1477,11 @@ void RCOutput::trigger_groups()
             const uint8_t i = &group - pwm_group_list;
             if (trigger_groupmask & (1U<<i)) {
                 // this triggers pulse output for a channel group
+                #if defined(CH32H417)
+                group.pwm_drv->tim->SWEVGR = TIM_UG;
+#else
                 group.pwm_drv->tim->EGR = STM32_TIM_EGR_UG;
+#endif
             }
         }
     }
@@ -1914,10 +1918,18 @@ void RCOutput::send_pulses_DMAR(pwm_group &group, uint32_t buffer_length)
                      STM32_DMA_CR_MINC | STM32_DMA_CR_PL(3) |
                      STM32_DMA_CR_TEIE | STM32_DMA_CR_TCIE);
 
-    // setup for burst strided transfers into the timers 4 CCR registers
+    // setup for burst strided transfers into the timers channels registers
+#if defined(CH32H417)
+    const uint8_t ccr_ofs = offsetof(stm32_tim_t, CH1CVR)/4;
+#else
     const uint8_t ccr_ofs = offsetof(stm32_tim_t, CCR)/4;
+#endif
     // burst address (BA) of the CCR register, burst length (BL) of 4 (0b11)
+#if defined(CH32H417)
+    group.pwm_drv->tim->DMACFGR = (ccr_ofs & TIM_DBA) | (3U << 8); /* DBA=ccr_ofs, DBL=3 */
+#else
     group.pwm_drv->tim->DCR = STM32_TIM_DCR_DBA(ccr_ofs) | STM32_TIM_DCR_DBL(3);
+#endif
     group.dshot_state = DshotState::SEND_START;
 #ifdef HAL_GPIO_LINE_GPIO54
     TOGGLE_PIN_DEBUG(54);
@@ -1999,7 +2011,11 @@ void RCOutput::dma_cancel(pwm_group& group)
     // since we are cancelling early they need to be reset to avoid infinite pulses
     for (uint8_t i = 0; i < 4; i++) {
         if (group.chan[i] != CHAN_DISABLED) {
+#if defined(CH32H417)
+            (&group.pwm_drv->tim->CH1CVR)[i] = 0;
+#else
             group.pwm_drv->tim->CCR[i] = 0;
+#endif
         }
     }
     chVTResetI(&group.dma_timeout);

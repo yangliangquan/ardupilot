@@ -32,7 +32,9 @@ extern const AP_HAL::HAL& hal;
 // F1 has a different EXTI register layout
 #if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS && !defined(STM32F1)
 #include <hal.h>
-#if defined(STM32F3) || defined(STM32F4) || defined(STM32F7)
+#if defined(CH32H417)
+#define EXTI_SWIER_REG EXTI->SWIEVR
+#elif defined(STM32F3) || defined(STM32F4) || defined(STM32F7)
 #define EXTI_SWIER_REG EXTI->SWIER
 #else
 #define EXTI_SWIER_REG EXTI->SWIER1
@@ -64,7 +66,7 @@ static bool create_interrupt_storm()
         const ioline_t line = PAL_LINE(GPIOA, pad);
         const palevent_t *pep = pal_lld_get_line_event(line);
         if (pep->cb != nullptr ||
-            ((EXTI->RTSR1 | EXTI->FTSR1 | EXTI_CPU->IMR1 | EXTI_CPU->EMR1) & mask) != 0) {
+            ((EXTI->RTENR | EXTI->FTENR | EXTI->INTENR) & mask) != 0) {
             continue;
         }
         storm_mask = mask;

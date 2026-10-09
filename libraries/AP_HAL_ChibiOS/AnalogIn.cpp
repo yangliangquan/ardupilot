@@ -564,6 +564,17 @@ void AnalogIn::setup_adc(uint8_t index)
 #elif defined(ADC_CFGR_RES_12BITS)
     // use 12 bit resolution
     adcgrpcfg[index].cfgr = ADC_CFGR_CONT | ADC_CFGR_RES_12BITS;
+#elif defined(CH32H417)
+    // the WCH ADC driver is configured through per-channel tables
+    adcgrpcfg[index].adcmode = ADC_Mode_Independent;
+    adcgrpcfg[index].adcoutputbuffer = 0;
+    adcgrpcfg[index].adcpga = ADC_Pga_1;
+    adcgrpcfg[index].adcdataalign = ADC_DataAlign_Right;
+    adcgrpcfg[index].adcscanmode = (num_grp_channels > 1) ? 1 : 0;
+    adcgrpcfg[index].adccont = true;
+    adcgrpcfg[index].adcexttrig = ADC_ExternalTrigConv_None;
+    memset(adcgrpcfg[index].adcchannels, 0, sizeof(adcgrpcfg[index].adcchannels));
+    memset(adcgrpcfg[index].adcsampletime, 0, sizeof(adcgrpcfg[index].adcsampletime));
 #else
     // use 12 bit resolution with ADCv1 or ADCv2
     adcgrpcfg[index].sqr1 = ADC_SQR1_NUM_CH(num_grp_channels);
@@ -579,7 +590,10 @@ void AnalogIn::setup_adc(uint8_t index)
     for (uint8_t i=0; i<num_grp_channels; i++) {
         uint8_t chan = get_pin_channel(index, i);
         // setup cycles per sample for the channel
-#if defined(STM32H7)
+#if defined(CH32H417)
+        adcgrpcfg[index].adcchannels[i] = chan;
+        adcgrpcfg[index].adcsampletime[chan] = ADC_SampleTime_CyclesMode2;
+#elif defined(STM32H7)
         adcgrpcfg[index].pcsel |= (1<<chan);
         adcgrpcfg[index].smpr[chan/10] |= ADC_SMPR_SMP_384P5 << (3*(chan%10));
         if (i < 4) {
