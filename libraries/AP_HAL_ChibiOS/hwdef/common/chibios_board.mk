@@ -113,7 +113,11 @@ include $(CHIBIOS)/$(CHIBIOS_PLATFORM_MK)
 include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
 # RTOS files (optional).
 include $(CHIBIOS)/os/rt/rt.mk
+ifeq ($(CHIBIOS_RISCV),yes)
+include $(CHIBIOS)/os/common/ports/RISCV-QINGKE/V5F/compilers/GCC/mk/port.mk
+else
 include $(CHIBIOS)/os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk
+endif
 # Other files (optional).
 #include $(CHIBIOS)/test/rt/test.mk
 include $(CHIBIOS)/os/hal/lib/streams/streams.mk
@@ -200,7 +204,11 @@ endif
 #
 
 #TRGT = arm-elf-
+ifeq ($(CHIBIOS_RISCV),yes)
+TRGT = riscv-wch-elf-
+else
 TRGT = arm-none-eabi-
+endif
 CC   = $(TRGT)gcc
 CPPC = $(TRGT)g++
 # Enable loading with g++ only if you need C++ runtime support.
@@ -222,8 +230,18 @@ AOPT =
 # THUMB-specific options here
 TOPT = -mthumb -DTHUMB
 
+ifeq ($(CHIBIOS_RISCV),yes)
+# no thumb concept on RISC-V
+TOPT =
+endif
+
 # Define C warning options here
+ifeq ($(CHIBIOS_RISCV),yes)
+# the CH32 port code is not prototype-clean; relax it there
+CWARN = -Wall -Wextra -Wundef -Werror
+else
 CWARN = -Wall -Wextra -Wundef -Wstrict-prototypes -Werror
+endif
 
 # Define C++ warning options here
 CPPWARN = -Wall -Wextra -Wundef -Werror

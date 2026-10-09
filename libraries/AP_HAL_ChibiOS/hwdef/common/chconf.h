@@ -31,7 +31,8 @@
 #include "hwdef.h"
 
 #define _CHIBIOS_RT_CONF_
-#define _CHIBIOS_RT_CONF_VER_7_0_
+// version bump for the RT 8.x based ChibiOS port
+#define _CHIBIOS_RT_CONF_VER_8_0_
 #define _CHIBIOS_HAL_CONF_VER_9_1_
 /*===========================================================================*/
 /**
@@ -840,13 +841,14 @@ extern "C" {
 #endif
 
 /**
- * @brief   stack overflow event hook.
- * @details This hook is invoked when we have a stack overflow on task switch
+ * @brief   safety checks hook.
+ * @details RT 8 replaces the stack overflow hook with a safety checks hook.
+ *          Keep the behaviour simple: route any safety violation into the
+ *          system halt path (which performs the crash dump).
  */
-#define CH_CFG_STACK_OVERFLOW_HOOK(tp) {                                         \
-  extern void stack_overflow(thread_t *tp); \
-  stack_overflow(tp); \
-}
+#define CH_CFG_SAFETY_CHECK_HOOK(l, f) do {                                 \
+    chSysHalt(f);                                                           \
+} while (false)
 
 /**
  * @brief   Trace hook.

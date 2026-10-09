@@ -165,7 +165,7 @@ class ChibiOSHWDef(hwdef.HWDef):
         lib = self.get_mcu_lib(self.mcu_type)
         if hasattr(lib, 'pincount'):
             self.pincount = lib.pincount
-        if self.mcu_series.startswith("STM32F1"):
+        if self.mcu_series.startswith("STM32F1") or self.mcu_series.startswith("CH32"):
             self.vtypes = self.f1_vtypes
         else:
             self.vtypes = self.f4f7_vtypes
@@ -289,7 +289,7 @@ class ChibiOSHWDef(hwdef.HWDef):
                 self.sig_dir = 'OUTPUT'
             else:
                 self.sig_dir = 'INPUT'
-            if mcu_series.startswith("STM32F1") and self.label is not None:
+            if (self.mcu_series.startswith("STM32F1") or self.mcu_series.startswith("CH32")) and self.label is not None:
                 self.f1_pin_setup(mcu_type)
 
             # check that labels and pin types are consistent
@@ -304,9 +304,12 @@ class ChibiOSHWDef(hwdef.HWDef):
 
         def f1_pin_setup(self, mcu_type):
             f1_input_sigs = ['RX', 'MISO', 'CTS']
-            f1_output_sigs = ['TX', 'MOSI', 'SCK', 'RTS', 'CH1', 'CH2', 'CH3', 'CH4']
+            f1_output_sigs = ['TX', 'MOSI', 'SCK', 'RTS', 'CH1', 'CH2', 'CH3', 'CH4',
+                              'SDIO_CK', 'SDIO_CMD', 'SDIO_D0', 'SDIO_D1', 'SDIO_D2', 'SDIO_D3']
+            matched = False
             for label in self.af_labels:
                 if self.label.startswith(label):
+                    matched = True
                     if self.label.endswith(tuple(f1_input_sigs)):
                         self.sig_dir = 'INPUT'
                         self.extra.append('FLOATING')
@@ -318,6 +321,10 @@ class ChibiOSHWDef(hwdef.HWDef):
                         self.sig_dir = 'OUTPUT'
                     else:
                         self.error("Unknown signal type %s:%s for %s!" % (self.portpin, self.label, mcu_type))
+            if not matched:
+                # label doesn't name an alternate function (GPIO, SWD, ...),
+                # leave signal direction handling to the caller
+                pass
 
         def has_extra(self, v):
             '''return true if we have the given extra token'''
@@ -480,7 +487,7 @@ class ChibiOSHWDef(hwdef.HWDef):
 
         def get_ODR_value(self):
             '''return one of LOW, HIGH'''
-            if self.mcu_series.startswith("STM32F1"):
+            if self.mcu_series.startswith("STM32F1") or self.mcu_series.startswith("CH32"):
                 return self.get_ODR_F1_value()
             values = ['LOW', 'HIGH']
             v = 'HIGH'
@@ -559,7 +566,7 @@ class ChibiOSHWDef(hwdef.HWDef):
 
         def get_CR(self):
             '''return CR FLAGS'''
-            if self.mcu_series.startswith("STM32F1"):
+            if self.mcu_series.startswith("STM32F1") or self.mcu_series.startswith("CH32"):
                 return self.get_CR_F1()
             if self.sig_dir != "INPUT":
                 speed_values = ['SPEED_LOW', 'SPEED_MEDIUM', 'SPEED_HIGH']
@@ -1125,7 +1132,7 @@ class ChibiOSHWDef(hwdef.HWDef):
         # write any custom STM32 defines
         using_chibios_can = False
         for d in self.alllines:
-            if d.startswith('STM32_'):
+            if d.startswith('STM32_') or d.startswith('CH32_'):
                 f.write('#define %s\n' % d)
             if d.startswith('define '):
                 if 'HAL_USE_CAN' in d:
@@ -1148,7 +1155,7 @@ class ChibiOSHWDef(hwdef.HWDef):
         flash_reserve_start = self.get_config(
             'FLASH_RESERVE_START_KB', default=16, type=int)
         f.write('\n// location of loaded firmware\n')
-        f.write('#define FLASH_LOAD_ADDRESS 0x%08x\n' % (0x08000000 + flash_reserve_start*1024))
+        f.write('#define FLASH_LOAD_ADDRESS 0x%08x\n' % ((self.get_mcu_config('FLASH_BASE', False) or 0x08000000) + flash_reserve_start*1024))
         # can be no persistent parameters if no space allocated for them
         if not self.is_bootloader_fw() and flash_reserve_start == 0:
             f.write('#define HAL_ENABLE_SAVE_PERSISTENT_PARAMS 0\n')
@@ -1433,8 +1440,10 @@ class ChibiOSHWDef(hwdef.HWDef):
         ram_map = self.get_ram_map()
         instruction_ram = self.get_mcu_config('INSTRUCTION_RAM', False)
 
-        flash_base = 0x08000000 + flash_reserve_start * 1024
-        ext_flash_base = 0x90000000 + ext_flash_reserve_start * 1024
+        flash_base = self.get_mcu_config('FLASH_BASE', False) or 0x08000000
+        flash_base += flash_reserve_start * 1024
+        ext_flash_base = self.get_mcu_config('EXT_FLASH_BASE', False) or 0x90000000
+        ext_flash_base += ext_flash_reserve_start * 1024
         if instruction_ram is not None:
             instruction_ram_base = instruction_ram[0]
             instruction_ram_length = instruction_ram[1]
@@ -1465,6 +1474,12 @@ class ChibiOSHWDef(hwdef.HWDef):
             ext_flash_length = 0
 
         self.env_vars['FLASH_TOTAL'] = flash_length * 1024
+
+        # expose the flash ranges for the binary generation step in waf
+        self.env_vars['INT_FLASH_ADDR_START'] = flash_base
+        self.env_vars['INT_FLASH_ADDR_END'] = flash_base + flash_length * 1024
+        self.env_vars['EXT_FLASH_ADDR_START'] = ext_flash_base
+        self.env_vars['EXT_FLASH_ADDR_END'] = ext_flash_base + ext_flash_length * 1024
 
         self.progress("Generating ldscript.ld")
         f = open(fname, 'w')

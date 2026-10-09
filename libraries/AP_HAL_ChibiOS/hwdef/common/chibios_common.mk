@@ -3,6 +3,14 @@
 # Processing options coming from the upper Makefile.
 #
 
+# RISC-V (CH32 etc) boards build via the ChibiOS RISC-V rules instead
+ifeq ($(CHIBIOS_RISCV),yes)
+# needed by the waf dynamic source discovery pass
+pass: $(BUILDDIR)
+	@echo $(foreach f,$(IINCDIR),"$(f);") > $(BUILDDIR)/include_dirs
+include $(CHIBIOS)/os/common/startup/RISCV-QINGKE/compilers/GCC/mk/rules.mk
+else
+
 # Compiler options
 OPT    := $(USE_OPT)
 COPT   := $(USE_COPT)
@@ -346,5 +354,7 @@ CLEAN_RULE_HOOK:
 # Include the dependency files, should be the last of the makefile
 #
 -include $(shell mkdir .dep 2>/dev/null) $(wildcard .dep/*)
+
+endif # CHIBIOS_RISCV
 
 # *** EOF ***
