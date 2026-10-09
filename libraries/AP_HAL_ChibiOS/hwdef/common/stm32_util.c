@@ -17,7 +17,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#if !defined(CH32H417)
 #include <stm32_dma.h>
+#endif
 #include <hrt.h>
 
 static int64_t utc_time_offset;
@@ -25,6 +27,15 @@ static int64_t utc_time_offset;
 /*
   setup the timer capture digital filter for a channel
  */
+#if defined(CH32H417)
+/* TODO(CH32): timer capture filters are not wired up on the waking core */
+void stm32_timer_set_input_filter(void *tim, uint8_t channel, uint8_t filter_mode)
+{
+    (void)tim;
+    (void)channel;
+    (void)filter_mode;
+}
+#else
 void stm32_timer_set_input_filter(stm32_tim_t *tim, uint8_t channel, uint8_t filter_mode)
 {
     switch (channel) {
@@ -42,10 +53,20 @@ void stm32_timer_set_input_filter(stm32_tim_t *tim, uint8_t channel, uint8_t fil
         break;
     }
 }
+#endif // !CH32H417
 
 /*
   set the input source of a timer channel
  */    
+#if defined(CH32H417)
+/* TODO(CH32): timer channel inputs are not wired up on the QingKe V5F */
+void stm32_timer_set_channel_input(void *tim, uint8_t channel, uint8_t input_source)
+{
+    (void)tim;
+    (void)channel;
+    (void)input_source;
+}
+#else
 void stm32_timer_set_channel_input(stm32_tim_t *tim, uint8_t channel, uint8_t input_source)
 {
     switch (channel) {
@@ -75,6 +96,8 @@ void stm32_timer_set_channel_input(stm32_tim_t *tim, uint8_t channel, uint8_t in
             break;
     }
 }
+
+#endif // !CH32H417
 
 #if CH_DBG_ENABLE_STACK_CHECK == TRUE && !defined(HAL_BOOTLOADER_BUILD)
 void show_stack_usage(void)
@@ -211,6 +234,30 @@ uint32_t get_fattime()
 
 #if AP_FASTBOOT_ENABLED
 
+#if defined(CH32H417)
+/*
+  the CH32H417 does not have backup registers; persistent watchdog data
+  is not available. TODO(CH32): use a reserved QSPI flash sector.
+*/
+
+// get RTC backup registers starting at given idx
+void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n)
+{
+    (void)idx;
+    while (n--) {
+        *v++ = 0;
+    }
+}
+
+// set n RTC backup registers starting at given idx
+void set_rtc_backup(uint8_t idx, const uint32_t *v, uint8_t n)
+{
+    (void)idx;
+    (void)v;
+    (void)n;
+}
+#else
+
 // get RTC backup registers starting at given idx
 void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n)
 {
@@ -254,6 +301,7 @@ void set_rtc_backup(uint8_t idx, const uint32_t *v, uint8_t n)
 #endif
     }
 }
+#endif // CH32H417
 
 // see if RTC registers is setup for a fast reboot
 enum rtc_boot_magic check_fast_reboot(void)
@@ -350,7 +398,34 @@ void peripheral_power_enable(void)
 #endif
 }
 
-#if defined(STM32F7) || defined(STM32H7) || defined(STM32F4) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
+#if defined(CH32H417)
+/*
+  set pin as pullup, pulldown or floating (CH32: F1-style CNF/MODE;
+  pull selection is the two CNF bits above the mode bits)
+ */
+void palLineSetPushPull(ioline_t line, enum PalPushPull pp)
+{
+    ioportid_t port = PAL_PORT(line);
+    uint8_t pad = PAL_PAD(line);
+    const syssts_t sts = chSysGetStatusAndLockX();
+    uint32_t sh = 4U * (pad & 7);
+    if (pad < 8) {
+        uint32_t cfgr = port->CFGLR & ~(0x3U << (sh + 2));
+        cfgr |= (pp == PAL_PUSHPULL_PULLUP ? 0x2U : (pp == PAL_PUSHPULL_PULLDOWN ? 0x1U : 0x0U)) << (sh + 2);
+        port->CFGLR = cfgr;
+    } else {
+        uint32_t cfgr = port->CFGHR & ~(0x3U << (sh + 2));
+        cfgr |= (pp == PAL_PUSHPULL_PULLUP ? 0x2U : (pp == PAL_PUSHPULL_PULLDOWN ? 0x1U : 0x0U)) << (sh + 2);
+        port->CFGHR = cfgr;
+    }
+    chSysRestoreStatusX(sts);
+}
+#endif // CH32H417
+
+#if defined(CH32H417)
+/* palReadLineMode comes from the fork GPIOv1 driver (F1-style) */
+
+#elif defined(STM32F7) || defined(STM32H7) || defined(STM32F4) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
 /*
   read mode of a pin. This allows a pin config to be read, changed and
   then written back
@@ -385,7 +460,6 @@ void palLineSetPushPull(ioline_t line, enum PalPushPull pp)
     port->PUPDR = (port->PUPDR & ~(3<<(pad*2))) | (pp<<(pad*2));
     chSysRestoreStatusX(sts);
 }
-
 #endif // F7, H7, F4
 
 /*
@@ -402,12 +476,25 @@ void stm32_set_line_mode(ioline_t line, iomode_t mode)
 
 void stm32_cacheBufferInvalidate(const void *p, size_t size)
 {
+#if defined(CH32H417)
+    /* QingKe V5F has no data cache; a fence keeps the memory model honest */
+    __asm__ volatile("fence" ::: "memory");
+    (void)p;
+    (void)size;
+#else
     cacheBufferInvalidate(p, size);
+#endif
 }
 
 void stm32_cacheBufferFlush(const void *p, size_t size)
 {
+#if defined(CH32H417)
+    __asm__ volatile("fence" ::: "memory");
+    (void)p;
+    (void)size;
+#else
     cacheBufferFlush(p, size);
+#endif
 }
 
 

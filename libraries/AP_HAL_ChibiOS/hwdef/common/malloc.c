@@ -432,7 +432,16 @@ size_t mem_available(void)
     chHeapStatus(NULL, &totalp, NULL);
 
     // we also need to add in memory that is not yet allocated to the heap
+#if defined(_CHIBIOS_RT_CONF_VER_8_0_)
+    /* RT 8 reports free core memory through a memory area map */
+    {
+        memory_area_t core_free;
+        chCoreGetStatusX(&core_free);
+        totalp += core_free.size;
+    }
+#else
     totalp += chCoreGetStatusX();
+#endif
 
     // now our own heaps
     for (i=1; i<NUM_MEMORY_REGIONS; i++) {

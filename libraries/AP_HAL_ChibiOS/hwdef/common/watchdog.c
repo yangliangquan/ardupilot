@@ -19,7 +19,11 @@
 #endif
 
 #ifndef RCC_BASE
+#if defined(CH32H417)
+/* the WCH header provides IWDG and RCC directly */
+#else
 #error "Unsupported IWDG RCC MCU config"
+#endif
 #endif
 
 #if STM32_WDG_TIMEOUT_MS > 4096 || STM32_WDG_TIMEOUT_MS < 20
@@ -49,10 +53,33 @@
 #define WDG_RESET_CLEAR (1U<<23)
 #define WDG_RESET_IS_IWDG (1U<<29)
 #define WDG_RESET_IS_SFT (1U<<28)
+#elif defined(CH32H417)
+/* WCH RCC_RSTSCKR: RMVF bit24 clears the flags */
+#define WDG_RESET_STATUS (RCC->RSTSCKR)
+#define WDG_RESET_CLEAR RCC_RMVF
+#define WDG_RESET_IS_IWDG RCC_IWDGRSTF
+#define WDG_RESET_IS_SFT RCC_SFTRSTF
 #else
 #error "Unsupported IWDG MCU config"
 #endif
 
+/*
+  the WCH IWDG peripheral (CH32H417) uses the same key protocol and
+  register layout as the STM32F1 flavour (keys written to the control
+  register, no window register). Alias the first four registers with
+  the STM32 field names.
+*/
+#if defined(CH32H417)
+typedef struct
+{
+  __IO uint32_t KR;   /*!< IWDG Control/Key register (CTLR),       0x00 */
+  __IO uint32_t PR;   /*!< IWDG Prescaler register (PSCR),         0x04 */
+  __IO uint32_t RLR;  /*!< IWDG Reload register (RLDR),            0x08 */
+  __IO uint32_t SR;   /*!< IWDG Status register (STATR),           0x0C */
+} IWDG_Regs;
+
+#define IWDGD (*(IWDG_Regs *)IWDG)
+#else
 typedef struct
 {
   __IO uint32_t KR;   /*!< IWDG Key register,       Address offset: 0x00 */
@@ -63,6 +90,7 @@ typedef struct
 } IWDG_Regs;
 
 #define IWDGD (*(IWDG_Regs *)(IWDG_BASE))
+#endif
 
 static uint32_t reset_reason;
 static bool watchdog_enabled;

@@ -17,7 +17,17 @@
   free-running (TIM based) system timer so SysTick is free
  */
 #ifndef AP_WATCHDOG_LOCKUP_DETECT_ENABLED
+#if defined(CH32H417)
+/* TODO(CH32): implement lockup detection above the kernel using a
+   spare TIM (TIM14) with a PFIC priority above the kernel; the Cortex
+   SysTick mechanism does not exist on the QingKe V5F */
 #if AP_CRASHDUMP_ENABLED && OSAL_ST_MODE == OSAL_ST_MODE_FREERUNNING && \
+    !defined(HAL_BOOTLOADER_BUILD) && !defined(IOMCU_FW)
+#define AP_WATCHDOG_LOCKUP_DETECT_ENABLED 1
+#else
+#define AP_WATCHDOG_LOCKUP_DETECT_ENABLED 0
+#endif
+#elif AP_CRASHDUMP_ENABLED && OSAL_ST_MODE == OSAL_ST_MODE_FREERUNNING && \
     !defined(HAL_BOOTLOADER_BUILD) && !defined(IOMCU_FW)
 #define AP_WATCHDOG_LOCKUP_DETECT_ENABLED 1
 #else

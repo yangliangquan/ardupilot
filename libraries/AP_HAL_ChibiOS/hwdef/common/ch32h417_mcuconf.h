@@ -21,6 +21,27 @@
 
 #include "ch32h417.h"
 
+/*
+ * Applications are built to run in place from the external QSPI flash
+ * window; the bootloader owns the clock tree. Used by hal_lld to skip
+ * clock switching when executing from the window.
+ */
+#define CH32_XIP_PROG_BASE                 0x70000000U
+
+/*
+ * AP code (and newlib) probe these; the QingKe V5F has a single
+ * precision FPU. The address is the F1 style unique-id location and
+ * needs verification against the datasheet.
+ */
+#ifndef __FPU_PRESENT
+#define __FPU_PRESENT                       1
+#endif
+#define __FPU_USED                          1
+#ifndef UDID_START
+#define UDID_START                          0x1FFFF7E0U /* FIXME(CH32): verify from CH32H417DS */
+#endif
+// (UDID_START is also generated into hwdef.h by chibios_hwdef.py; keep them equal)
+
 /*===========================================================================*/
 /* Compatibility bridges: the AP hwdef generator emits STM32_* names;         */
 /* map them onto the CH32 port equivalents so shared AP HAL code may be       */
@@ -161,6 +182,297 @@
 #define PAL_MODE_STM32_ALTERNATE_PUSHPULL(n)  PAL_CH32_ALTERNATE_PUSHPULL(n)
 #define PAL_MODE_STM32_ALTERNATE_OPENDRAIN(n) PAL_CH32_ALTERNATE_OPENDRAIN(n)
 #define PAL_MODE_ALTERNATE(n)                 PAL_CH32_ALTERNATE_PUSHPULL(n)
+
+/*===========================================================================*/
+/* Driver enable bridge: upstream AP code tests STM32_<DRV>_USE_<PERIPH>      */
+/* switches from mcuconf; route them to the CH32 port switch names.           */
+/*===========================================================================*/
+
+#ifndef STM32_SPI_USE_SPI1
+#define STM32_SPI_USE_SPI1                   CH32_SPI_USE_SPI1
+#endif
+#ifndef STM32_SPI_USE_SPI2
+#define STM32_SPI_USE_SPI2                   CH32_SPI_USE_SPI2
+#endif
+#ifndef STM32_SPI_USE_SPI3
+#define STM32_SPI_USE_SPI3                   CH32_SPI_USE_SPI3
+#endif
+#ifndef STM32_SPI_USE_SPI4
+#define STM32_SPI_USE_SPI4                   CH32_SPI_USE_SPI4
+#endif
+
+#ifndef STM32_I2C_USE_I2C1
+#define STM32_I2C_USE_I2C1                   CH32_I2C_USE_I2C1
+#endif
+#ifndef STM32_I2C_USE_I2C2
+#define STM32_I2C_USE_I2C2                   CH32_I2C_USE_I2C2
+#endif
+#ifndef STM32_I2C_USE_I2C3
+#define STM32_I2C_USE_I2C3                   CH32_I2C_USE_I2C3
+#endif
+#ifndef STM32_I2C_USE_I2C4
+#define STM32_I2C_USE_I2C4                   CH32_I2C_USE_I2C4
+#endif
+
+#ifndef STM32_CAN_USE_CAN1
+#define STM32_CAN_USE_CAN1                   CH32_CAN_USE_CAN1
+#endif
+#ifndef STM32_CAN_USE_CAN2
+#define STM32_CAN_USE_CAN2                   CH32_CAN_USE_CAN2
+#endif
+#ifndef STM32_CAN_USE_CAN3
+#define STM32_CAN_USE_CAN3                   CH32_CAN_USE_CAN3
+#endif
+
+#ifndef STM32_SERIAL_USE_USART1
+#define STM32_SERIAL_USE_USART1              CH32_SERIAL_USE_USART1
+#endif
+#ifndef STM32_SERIAL_USE_USART2
+#define STM32_SERIAL_USE_USART2              CH32_SERIAL_USE_USART2
+#endif
+#ifndef STM32_SERIAL_USE_USART3
+#define STM32_SERIAL_USE_USART3              CH32_SERIAL_USE_USART3
+#endif
+#ifndef STM32_SERIAL_USE_USART4
+#define STM32_SERIAL_USE_USART4              CH32_SERIAL_USE_USART4
+#endif
+#ifndef STM32_SERIAL_USE_USART5
+#define STM32_SERIAL_USE_USART5              CH32_SERIAL_USE_USART5
+#endif
+#ifndef STM32_SERIAL_USE_USART6
+#define STM32_SERIAL_USE_USART6              CH32_SERIAL_USE_USART6
+#endif
+#ifndef STM32_SERIAL_USE_USART7
+#define STM32_SERIAL_USE_USART7              CH32_SERIAL_USE_USART7
+#endif
+#ifndef STM32_SERIAL_USE_USART8
+#define STM32_SERIAL_USE_USART8              CH32_SERIAL_USE_USART8
+#endif
+
+#ifndef STM32_UART_USE_USART1
+#define STM32_UART_USE_USART1                CH32_UART_USE_USART1
+#endif
+#ifndef STM32_UART_USE_USART2
+#define STM32_UART_USE_USART2                CH32_UART_USE_USART2
+#endif
+#ifndef STM32_UART_USE_USART3
+#define STM32_UART_USE_USART3                CH32_UART_USE_USART3
+#endif
+#ifndef STM32_UART_USE_USART4
+#define STM32_UART_USE_USART4                CH32_UART_USE_USART4
+#endif
+#ifndef STM32_UART_USE_USART5
+#define STM32_UART_USE_USART5                CH32_UART_USE_USART5
+#endif
+#ifndef STM32_UART_USE_USART6
+#define STM32_UART_USE_USART6                CH32_UART_USE_USART6
+#endif
+#ifndef STM32_UART_USE_USART7
+#define STM32_UART_USE_USART7                CH32_UART_USE_USART7
+#endif
+#ifndef STM32_UART_USE_USART8
+#define STM32_UART_USE_USART8                CH32_UART_USE_USART8
+#endif
+
+#ifndef STM32_PWM_USE_TIM1
+#define STM32_PWM_USE_TIM1                   CH32_PWM_USE_TIM1
+#endif
+#ifndef STM32_PWM_USE_TIM2
+#define STM32_PWM_USE_TIM2                   CH32_PWM_USE_TIM2
+#endif
+#ifndef STM32_PWM_USE_TIM3
+#define STM32_PWM_USE_TIM3                   CH32_PWM_USE_TIM3
+#endif
+#ifndef STM32_PWM_USE_TIM4
+#define STM32_PWM_USE_TIM4                   CH32_PWM_USE_TIM4
+#endif
+#ifndef STM32_PWM_USE_TIM5
+#define STM32_PWM_USE_TIM5                   CH32_PWM_USE_TIM5
+#endif
+
+#ifndef STM32_ICU_USE_TIM1
+#define STM32_ICU_USE_TIM1                   CH32_ICU_USE_TIM1
+#endif
+#ifndef STM32_ICU_USE_TIM2
+#define STM32_ICU_USE_TIM2                   CH32_ICU_USE_TIM2
+#endif
+#ifndef STM32_ICU_USE_TIM3
+#define STM32_ICU_USE_TIM3                   CH32_ICU_USE_TIM3
+#endif
+#ifndef STM32_ICU_USE_TIM4
+#define STM32_ICU_USE_TIM4                   CH32_ICU_USE_TIM4
+#endif
+#ifndef STM32_ICU_USE_TIM5
+#define STM32_ICU_USE_TIM5                   CH32_ICU_USE_TIM5
+#endif
+
+#ifndef STM32_SDC_USE_SDC1
+#define STM32_SDC_USE_SDC1                   CH32_SDC_USE_SDC1
+#endif
+#ifndef STM32_SDC_USE_SDMMC1
+#define STM32_SDC_USE_SDMMC1                 CH32_SDC_USE_SDIO
+#endif
+#ifndef STM32_OTG_USE_USB1
+#define STM32_OTG_USE_USB1                   CH32_OTG_USE_USB1
+#endif
+#ifndef STM32_ADC_USE_ADC1
+#define STM32_ADC_USE_ADC1                   CH32_ADC_USE_ADC1
+#endif
+#ifndef STM32_ADC_USE_ADC2
+#define STM32_ADC_USE_ADC2                   CH32_ADC_USE_ADC2
+#endif
+
+#ifndef STM32_DMA_SUPPORTS_DMAMUX
+#define STM32_DMA_SUPPORTS_DMAMUX            CH32_DMA_SUPPORTS_DMAMUX
+#endif
+#ifndef STM32_DMA_SUPPORTS_CSELR
+#define STM32_DMA_SUPPORTS_CSELR             0
+#endif
+#ifndef STM32_DMA_STREAMS
+#define STM32_DMA_STREAMS                    CH32_DMA_STREAMS
+#endif
+#ifndef STM32_DMA_ADVANCED
+#define STM32_DMA_ADVANCED                   0
+#endif
+#ifndef STM32_SPI_USE_SPI5
+#define STM32_SPI_USE_SPI5                   FALSE
+#endif
+#ifndef STM32_SPI_USE_SPI6
+#define STM32_SPI_USE_SPI6                   FALSE
+#endif
+/* central RISC-V type bridges (the ARM port provides these kinds of names) */
+typedef struct ch32_dma_stream stm32_dma_stream_t;
+/* the CH32 DMA ISR callback type is a function pointer defined in the LLD
+   header (included later by hal.h) */
+typedef void (*stm32_dmaisr_t)(void *p, uint32_t flags);
+typedef TIM_TypeDef stm32_tim_t;
+typedef uint32_t stkalign_t;
+
+/* features the QingKe port does not plan to implement */
+#define HAL_USE_EICU                         FALSE
+
+/* NVIC API bridge for the RT8 RISC-V port (QingKe PFIC). The WCH
+   core_riscv helper calls take an IRQn and an 8 bit priority (higher
+   value == higher priority is handled inside the port). */
+
+/* UART inverter/push-pull-port access bridge macros */
+#define nvicEnableVector(irq, prio)  do {                                    \
+    NVIC_SetPriority((IRQn_Type)(uint32_t)(irq), (uint8_t)(prio));           \
+    NVIC_EnableIRQ((IRQn_Type)(uint32_t)(irq));                              \
+} while (0)
+#define nvicDisableVector(irq)       NVIC_DisableIRQ((IRQn_Type)(uint32_t)(irq))
+#ifndef CORTEX_MAX_KERNEL_PRIORITY
+#define CORTEX_MAX_KERNEL_PRIORITY           PORT_HIGHEST_PRIORITY
+#endif
+
+/* SPI register-name bridge (WCH uses CTLR1/STATR instead of CR1/SR) */
+#define SPI_CR1_CPOL                         SPI_CTLR1_CPOL
+#define SPI_CR1_CPHA                         SPI_CTLR1_CPHA
+#define SPI_CR1_MSTR                         SPI_CTLR1_MSTR
+#define SPI_CR1_SPE                          SPI_CTLR1_SPE
+#define SPI_CR1_SSI                          SPI_CTLR1_SSI
+#define SPI_CR1_SSM                          SPI_CTLR1_SSM
+#define SPI_CR1_LSBFIRST                     SPI_CTLR1_LSBFIRST
+#define SPI_CR1_BR                           SPI_CTLR1_BR
+#define SPI_CR1_BR_0                         SPI_CTLR1_BR_0
+#define SPI_CR1_BR_1                         SPI_CTLR1_BR_1
+#define SPI_CR1_BR_2                         SPI_CTLR1_BR_2
+#define SPI_CR1_MTXIE                        SPI_CTLR1_MTXIE /* FIXME(CH32): verify */
+/* I2C limit flag is an STM32 I2Cv1 concept; PFIC I2C on CH32 doesn't. */
+#define I2C_ISR_LIMIT                        ((uint16_t)0x0080)
+
+/* RCC enable bridge helpers for the upstream names used in AP drivers */
+#define rccEnableSPI1(lp)  enableHB2(RCC_SPI1EN)
+#define rccEnableSPI2(lp)  enableHB1(RCC_SPI2EN)
+#define rccEnableSPI3(lp)  enableHB1(RCC_SPI3EN)
+#define rccEnableSPI4(lp)  enableHB1(RCC_SPI4EN)
+#define rccEnableI2C1(lp)  enableHB2(RCC_I2C1EN)
+#define rccEnableI2C2(lp)  enableHB1(RCC_I2C2EN)
+#define rccEnableI2C3(lp)  enableHB1(RCC_I2C3EN)
+#define rccEnableI2C4(lp)  enableHB1(RCC_I2C4EN)
+
+/* TIM DMA request bits (WCH names) */
+#define TIM_DIER_UDE                         TIM_UDE
+/* TIM DMA address register (WCH name). Only used as a member token in
+   AP code; the WCH headers have no struct fields named DMAR. */
+#define DMAR                                 DMAADR
+
+/*===========================================================================*/
+/* USART bit-name bridges (WCH chose CTLR/STATR names)                        */
+/*===========================================================================*/
+#define USART_SR_IDLE                        USART_STATR_IDLE
+#define USART_SR_RXNE                        USART_STATR_RXNE
+#define USART_SR_TXE                         USART_STATR_TXE
+#define USART_SR_TC                          USART_STATR_TC
+#define USART_SR_ORE                         USART_STATR_ORE
+#define USART_SR_FE                          USART_STATR_FE
+#define USART_SR_NE                          USART_STATR_NE
+#define USART_CR1_IDLEIE                     USART_CTLR1_IDLEIE
+#define USART_CR1_RXNEIE                     USART_CTLR1_RXNEIE
+#define USART_CR1_TXEIE                      USART_CTLR1_TXEIE
+#define USART_CR1_TCIE                       USART_CTLR1_TCIE
+#define USART_CR1_UE                         USART_CTLR1_UE
+#define USART_CR2_LBDIE                      USART_CTLR2_LBDIE
+#define USART_CR3_DMAR                       USART_CTLR3_DMAR
+#define USART_CR3_DMAT                       USART_CTLR3_DMAT
+#define USART_CR1_M                          USART_CTLR1_M
+#define USART_CR1_PCE                        USART_CTLR1_PCE
+#define USART_CR1_PS                         USART_CTLR1_PS
+#define USART_CR1_OVER8                      0 /* FIXME(CH32): no single sample per bit mode */
+#define USART_CR3_CTSE                       USART_CTLR3_CTSE
+#define USART_CR3_RTSE                       USART_CTLR3_RTSE
+#define USART_CR2_STOP1_BITS                 0
+#define USART_CR2_STOP2_BITS                 0
+#define USART_CR2_SWAP                       0  /* FIXME(CH32): no pin swap */
+#define USART_CR2_TXINV                      0  /* FIXME(CH32): no invert */
+#define USART_CR2_RXINV                      0  /* FIXME(CH32): no invert */
+/* WCH uses half-duplex select instead of driver-enable mode */
+#define USART_CR3_DEM                        USART_CTLR3_HDSEL
+#define USART_CR3_HDSEL                      USART_CTLR3_HDSEL
+
+/*===========================================================================*/
+/* PAL mode-name bridge for the upstream AP code style                        */
+/*===========================================================================*/
+#define PAL_STM32_MODE_INPUT                 PAL_MODE_INPUT
+#define PAL_STM32_MODE_OUTPUT                PAL_MODE_OUTPUT_PUSHPULL
+#define PAL_STM32_MODE_ALTERNATE(n)          PAL_CH32_ALTERNATE_PUSHPULL(n)
+#define PAL_STM32_OTYPE_PUSHPULL             0
+#define PAL_STM32_OTYPE_OPENDRAIN            PAL_MODE_OUTPUT_OPENDRAIN
+#define PAL_STM32_OSPEED_LOWEST              0
+#define PAL_STM32_OSPEED_LOW                 PIN_SPEED_LOW
+#define PAL_STM32_OSPEED_MID1                PIN_SPEED_MEDIUM
+#define PAL_STM32_OSPEED_MEDIUM              PIN_SPEED_MEDIUM
+#define PAL_STM32_OSPEED_HIGH                PIN_SPEED_HIGH
+#define PAL_STM32_PUPDR_FLOATING             PAL_MODE_INPUT
+#define PAL_STM32_PUPDR_PULLUP               PAL_MODE_INPUT_PULLUP
+#define PAL_STM32_PUPDR_PULLDOWN             PAL_MODE_INPUT_PULLDOWN
+
+/*===========================================================================*/
+/* RISC-V core access bridges (Cortex asm names that AP code references)      */
+/*===========================================================================*/
+#ifndef __get_PSP
+#define __get_PSP()                          __get_SP()
+#endif
+#define __get_IPSR()                         0
+/* QingKe V5F trap vectors are handled by the port; the ARM SCB records
+   that AP reads in fault handlers do not exist */
+
+
+/*===========================================================================*/
+/* Clock bridge: the WCH HAL exposes clock frequencies as globals.            */
+/* TODO(CH32): add per-bus (HB1/HB2) clock points in the fork hal_lld;        */
+/* these bridges currently assume all peripheral buses run at HCLK.           */
+/*===========================================================================*/
+extern uint32_t SystemClock;
+extern uint32_t SystemCoreClock;
+extern uint32_t HCLKClock;
+
+#define STM32_SYS_CK                         SystemClock
+#define STM32_CORE_CK                        SystemCoreClock
+#define STM32_HCLK                           HCLKClock
+#define STM32_PCLK1                          HCLKClock
+#define STM32_PCLK2                          HCLKClock
+#define STM32_PCLK                           HCLKClock
 
 /*===========================================================================*/
 /* System configuration                                                      */
@@ -462,8 +774,9 @@
 /* SDC driver system settings.                                               */
 /* NOTE: the browser uses the SDIO peripheral instance.                       */
 /*===========================================================================*/
-#define CH32_SDC_USE_SDC1                  FALSE
-#define CH32_SDC_USE_SDIO                  FALSE
+#define CH32_SDC_USE_SDC1                  TRUE
+#define CH32_SDC_SDIO_CLOCK                100000000
+#define CH32_SDC_SDIO_IRQ_PRIORITY         9
 
 /*===========================================================================*/
 /* USB (OTG) driver system settings.                                         */

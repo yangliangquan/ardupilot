@@ -1239,6 +1239,13 @@ class ChibiOSHWDef(hwdef.HWDef):
         f.write('\n// CPU serial number (12 bytes)\n')
         udid_start = self.get_mcu_config('UDID_START')
         if udid_start is None:
+            # CH32 unique chip id address is provisional (F1-like); verify
+            # against the CH32H417 datasheet before relying on it
+            if self.mcu_series.startswith('CH32'):
+                udid_start = 0x1FFFF7E0
+            else:
+                udid_start = None
+        if udid_start is None:
             f.write('#define UDID_START UID_BASE\n\n')
         else:
             f.write('#define UDID_START 0x%08x\n\n' % udid_start)
@@ -2667,7 +2674,7 @@ Please run: Tools/scripts/build_bootloaders.py %s
 
         self.embed_bootloader(f)
 
-        if self.mcu_series.startswith('STM32F1'):
+        if self.mcu_series.startswith('STM32F1') or self.mcu_series.startswith('CH32'):
             f.write('''
 /*
  * I/O ports initial setup, this configuration is established soon after reset

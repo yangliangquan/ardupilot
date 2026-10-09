@@ -96,17 +96,23 @@ SECTIONS
     constructors : ALIGN(4) SUBALIGN(4)
     {
         __init_array_base__ = .;
+        /* WCH crt1.c expects GCC-provided start/end names */
+        __init_array_start__ = .;
         KEEP(*(SORT(.init_array.*)))
         KEEP(*(.init_array))
         __init_array_end__ = .;
+        __init_array_end = .;
+        __init_array_start = .;
     } > default_flash
 
     destructors : ALIGN(4) SUBALIGN(4)
     {
         __fini_array_base__ = .;
+        __fini_array_start = .;
         KEEP(*(.fini_array))
         KEEP(*(SORT(.fini_array.*)))
         __fini_array_end__ = .;
+        __fini_array_end = .;
     } > default_flash
 
     /* INSTRUCTION_RAM area is ITCM, used for hot code */

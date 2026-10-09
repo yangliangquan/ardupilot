@@ -106,7 +106,12 @@ PROJECT = ch
 
 # Imported source files and paths
 # Startup files.
+ifeq ($(CHIBIOS_BOOT_BUILD),no)
+# ArduPilot application startup (XIP from external flash, no clock setup)
+include $(AP_HAL)/hwdef/common/startup_ch32v5f.mk
+else
 include $(CHIBIOS)/$(CHIBIOS_STARTUP_MK)
+endif
 # HAL-OSAL files (optional).
 include $(CHIBIOS)/os/hal/hal.mk
 include $(CHIBIOS)/$(CHIBIOS_PLATFORM_MK)

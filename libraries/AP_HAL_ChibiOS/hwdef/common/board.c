@@ -48,6 +48,53 @@ const PALConfig pal_default_config =
   {VAL_GPIOE_ODR, VAL_GPIOE_CRL, VAL_GPIOE_CRH},
 };
 
+#elif defined(CH32H417)
+
+/*
+  CH32H417 (WCH QingKe) GPIO are F1-style CNF/MODE. The fork PAL driver
+  takes no initial configuration (palInit() has no config argument), so
+  ch32_gpio_init() applies the hwdef-generated VAL_GPIOx_* tables
+  directly to the ports.
+*/
+
+static void ch32_gpio_init(void)
+{
+  /* gpio port clocks are on the HB2 bus */
+  enableHB2(CH32_GPIO_EN_MASK);
+#ifdef GPIOA
+  GPIOA->OUTDR = VAL_GPIOA_ODR;
+  GPIOA->CFGLR = VAL_GPIOA_CRL;
+  GPIOA->CFGHR = VAL_GPIOA_CRH;
+#endif
+#ifdef GPIOB
+  GPIOB->OUTDR = VAL_GPIOB_ODR;
+  GPIOB->CFGLR = VAL_GPIOB_CRL;
+  GPIOB->CFGHR = VAL_GPIOB_CRH;
+#endif
+#ifdef GPIOC
+  GPIOC->OUTDR = VAL_GPIOC_ODR;
+  GPIOC->CFGLR = VAL_GPIOC_CRL;
+  GPIOC->CFGHR = VAL_GPIOC_CRH;
+#endif
+#ifdef GPIOD
+  GPIOD->OUTDR = VAL_GPIOD_ODR;
+  GPIOD->CFGLR = VAL_GPIOD_CRL;
+  GPIOD->CFGHR = VAL_GPIOD_CRH;
+#endif
+#ifdef GPIOE
+  GPIOE->OUTDR = VAL_GPIOE_ODR;
+  GPIOE->CFGLR = VAL_GPIOE_CRL;
+  GPIOE->CFGHR = VAL_GPIOE_CRH;
+#endif
+#ifdef GPIOF
+  GPIOF->OUTDR = VAL_GPIOF_ODR;
+  GPIOF->CFGLR = VAL_GPIOF_CRL;
+  GPIOF->CFGHR = VAL_GPIOF_CRH;
+#endif
+}
+
+const PALConfig pal_default_config;
+
 #else //Other than STM32F1/F3 series
 
 /**
@@ -235,9 +282,16 @@ static void stm32_gpio_init(void) {
  */
 void __early_init(void) {
 #if !defined(STM32F1)
+#if defined(CH32H417)
+  ch32_gpio_init();
+#else
   stm32_gpio_init();
 #endif
-#if !HAL_XIP_ENABLED || defined(HAL_FORCE_CLOCK_INIT)
+#endif
+#if defined(CH32H417)
+  /* the bootloader owns the clock tree when running from external
+     flash (XIP); hal_lld verifies instead of switching */
+#elif !HAL_XIP_ENABLED || defined(HAL_FORCE_CLOCK_INIT)
   // if running from external flash then the clocks must not be reset - instead rely on the bootloader to setup
   stm32_clock_init();
 #endif

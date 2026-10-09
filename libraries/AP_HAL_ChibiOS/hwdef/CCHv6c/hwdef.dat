@@ -30,6 +30,13 @@ FLASH_SIZE_KB 960
 # not used for the application (only the bootloader).
 EXT_FLASH_SIZE_MB 4
 
+# the application runs in place from external flash
+define HAL_XIP_ENABLED 1
+
+# FIXME(CH32): CMSIS-DSP is Cortex specific; disable FFT until the
+# RISC-V port of the DJ library is available
+define HAL_GYROFFT_ENABLED 0
+
 # ChibiOS system timer (TIM10: 32-bit counter, unused by PWM/GPT/ICU)
 CH32_ST_USE_TIMER 10
 

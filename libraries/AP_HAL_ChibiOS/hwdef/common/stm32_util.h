@@ -16,6 +16,13 @@
 
 #include "hal.h"
 
+#if defined(CH32H417)
+/* the RISC-V port does not define the ARM port stack types; AP code only
+   uses these for symbol addresses */
+typedef uint32_t stkalign_t;
+typedef TIM_TypeDef stm32_tim_t;
+#endif
+
 #ifndef AP_WATCHDOG_SAVE_FAULT_ENABLED
 #define AP_WATCHDOG_SAVE_FAULT_ENABLED 1
 #endif
@@ -28,8 +35,12 @@
 extern "C" {
 #endif
 
+#if defined(CH32H417)
+/* TODO(CH32): QingKe timer capture filters are not wired up */
+#else
 void stm32_timer_set_input_filter(stm32_tim_t *tim, uint8_t channel, uint8_t filter_mode);
 void stm32_timer_set_channel_input(stm32_tim_t *tim, uint8_t channel, uint8_t input_source);
+#endif
 
 #if CH_DBG_ENABLE_STACK_CHECK == TRUE
 // print stack usage
@@ -105,7 +116,7 @@ void malloc_init(void);
   read mode of a pin. This allows a pin config to be read, changed and
   then written back
  */
-#if defined(STM32F7) || defined(STM32H7) || defined(STM32F4) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4) ||defined(STM32L4PLUS)
+#if defined(CH32H417) || defined(STM32F7) || defined(STM32H7) || defined(STM32F4) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4) ||defined(STM32L4PLUS)
 iomode_t palReadLineMode(ioline_t line);
 
 enum PalPushPull {
