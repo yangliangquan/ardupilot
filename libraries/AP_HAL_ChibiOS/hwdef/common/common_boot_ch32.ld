@@ -87,6 +87,10 @@ SECTIONS
         KEEP(*(SORT_NONE(.vector_handler)))
         *(.text)
         *(.text.*)
+        /* V5F crt0 reset flow + port IRQ entry must ride along with the
+           copy (the copy loop covers _highcode_vma_start.._end only) */
+        KEEP(*(SORT_NONE(.handle_reset)))
+        *(.irq_entry)
         *(.rodata)
         *(.rodata*)
         *(.glue_7)
