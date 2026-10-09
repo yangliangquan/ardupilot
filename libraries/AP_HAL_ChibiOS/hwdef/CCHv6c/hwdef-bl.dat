@@ -1,0 +1,79 @@
+# hw definition file for processing by chibios_hwdef.py
+# for the CCH-v6c hardware (WCH CH32H417, Pixhawk v6C-compatible layout)
+# BOOTLOADER build: runs from internal CodeFlash, loads the app into the
+# external QSPI flash (4MB Winbond treated as 4MB, mapped at 0x70000000)
+
+# MCU class and specific type
+MCU CH32H417xx CH32H417xx
+
+# crystal frequency
+OSCILLATOR_HZ 25000000
+
+# USB setup (provisional IDs, replace with CCH assigned ones)
+USB_VENDOR 0x3162 # ONLY FOR USE BY Holybro, FIXME: provisional
+USB_PRODUCT 0x0053 # FIXME: provisional
+
+# board ID. See Tools/AP_Bootloader/board_types.txt
+APJ_BOARD_ID TARGET_HW_CCH_V6C
+
+# bootloader is installed at zero offset (of its CodeFlash window)
+FLASH_RESERVE_START_KB 0
+
+# the bootloader image budget in internal CodeFlash (image runs from the
+# zero-wait alias window; see the ldscript)
+FLASH_BOOTLOADER_LOAD_KB 256
+
+# internal CodeFlash, 960KB in DBMODE=1
+FLASH_SIZE_KB 960
+
+# External flash (QSPI2 mapped window @0x70000000): the app lives there
+EXT_FLASH_SIZE_MB 4
+EXT_FLASH_RESERVE_START_KB 0
+EXT_FLASH_RESERVE_END_KB 0
+
+# order of UARTs (and USB)
+SERIAL_ORDER OTG1 USART3
+
+# USB
+PA11 OTG_FS_DM OTG1
+PA12 OTG_FS_DP OTG1
+PA9 VBUS INPUT
+
+# debug serial (USART3)
+PD8 USART3_TX USART3
+PD9 USART3_RX USART3
+
+# pins for SWD debugging
+PB8 SWDIO SWD
+PB9 SWCLK SWD
+
+# QSPI2 (Winbond flash, app image target)
+PF6  QSPI2_SCK QUADSPI2
+PF1  QSPI2_SCSN QUADSPI2
+PF2  QSPI2_SIO0 QUADSPI2
+PF9  QSPI2_SIO1 QUADSPI2
+PF10 QSPI2_SIO2 QUADSPI2
+PE15 QSPI2_SIO3 QUADSPI2
+
+# the app-image NOR flash on QSPI2 (32Mbit => 4MB, size as power of 2 = 22)
+QSPIDEV w25q QUADSPI2 MODE3 50*MHZ 22 0
+
+# LEDs
+PD10 LED_ACTIVITY OUTPUT OPENDRAIN GPIO(90) HIGH # red
+PD11 LED_BOOTLOADER OUTPUT OPENDRAIN GPIO(92) HIGH # blue
+define HAL_LED_ON 0
+
+define HAL_USE_EMPTY_STORAGE 1
+define HAL_STORAGE_SIZE 16384
+
+# no SD-card flashing on this board (app lives in external QSPI)
+define AP_BOOTLOADER_FLASH_FROM_SD_ENABLED 0
+
+# FATFS not needed in the bootloader
+define CH_CFG_USE_MEMCORE 1
+define CH_CFG_USE_HEAP 1
+define CH_CFG_USE_SEMAPHORES 0
+define CH_CFG_USE_MUTEXES 1
+define CH_CFG_USE_DYNAMIC 1
+define CH_CFG_USE_WAITEXIT 1
+define CH_CFG_USE_REGISTRY 1

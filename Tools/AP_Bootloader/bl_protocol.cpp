@@ -313,7 +313,12 @@ jump_to_app()
     led_set(LED_OFF);
 
     // resetting the clocks is needed for loading NuttX
-#if defined(STM32H7)
+#if defined(CH32H417)
+    /* the app runs from the QSPI XIP window with the clock tree owned
+       by the bootloader: don't gate peripheral clocks; the app's
+       hal_lld will repeat the QSPI setup itself. Just drop SPORT? no —
+       peripherals are left as-is and port_disable() protects us. */
+#elif defined(STM32H7)
     rccDisableAPB1L(~0);
     rccDisableAPB1H(~0);
 #elif defined(STM32G4)
@@ -325,11 +330,17 @@ jump_to_app()
 #elif defined(STM32L4PLUS)
     rccDisableAPB1R1(~0);
     rccDisableAPB1R2(~0);
+#elif defined(CH32H417)
+    /* the app runs from the QSPI XIP window: the clock tree was set up
+       by the firmware and must stay alive for the jump (leave the
+       peripheral clocks alone). */
 #else
     rccDisableAPB1(~0);
 #endif
+#if defined(STM32H7) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS) || defined(STM32F4) || defined(STM32F7) || defined(STM32F1) || defined(STM32F3)
     rccDisableAPB2(~0);
-#if HAL_USE_SERIAL_USB == TRUE
+#endif
+#if HAL_USE_SERIAL_USB == TRUE && !defined(CH32H417)
 #if !STM32_OTG2_IS_OTG1
     rccResetOTG_FS();
 #endif
@@ -341,11 +352,28 @@ jump_to_app()
     // disable all interrupt sources
     port_disable();
 
+#if defined(CH32H417)
+    /* extract the stack and entrypoint from the app vector table and
+       go. The QSPI2 window is already memory-mapped by the WSPI XIP
+       mode switch above; the V5F mepc jump pattern of the WCH crt0
+       expects the entrypoint in mepc with a stack pointer. */
+    {
+        const uint32_t entry = app_base[1];
+        const uint32_t stack = app_base[0];
+        __asm__ volatile (
+            "csrw mscratch, %0\n"
+            "csrw mepc, %1\n"
+            "mret\n"
+            : : "r"(stack), "r"(entry));
+    }
+    while (true) {}
+#else
     /* switch exception handlers to the application */
     *(volatile uint32_t *)SCB_VTOR = APP_START_ADDRESS;
 
     /* extract the stack and entrypoint from the app vector table and go */
     do_jump(app_base[0], app_base[1]);
+#endif
 exit:
 #if EXT_FLASH_SIZE_MB
     ext_flash.stop_xip_mode();

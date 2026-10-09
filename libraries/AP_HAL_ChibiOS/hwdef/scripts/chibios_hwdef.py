@@ -1202,7 +1202,7 @@ class ChibiOSHWDef(hwdef.HWDef):
         if self.is_bootloader_fw():
             if self.env_vars['EXT_FLASH_SIZE_MB'] and not self.env_vars['INT_FLASH_PRIMARY']:
                 f.write('\n// location of loaded firmware in external flash\n')
-                f.write('#define APP_START_ADDRESS 0x%08x\n' % (0x90000000 + self.get_config(
+                f.write('#define APP_START_ADDRESS 0x%08x\n' % ((self.get_mcu_config('EXT_FLASH_BASE', False) or 0x90000000) + self.get_config(
                     'EXT_FLASH_RESERVE_START_KB', default=0, type=int)*1024))
                 f.write('#define BOOT_FROM_EXT_FLASH 1\n')
             f.write('#define FLASH_BOOTLOADER_LOAD_KB %u\n' % self.get_config('FLASH_BOOTLOADER_LOAD_KB', type=int))
@@ -1501,7 +1501,28 @@ class ChibiOSHWDef(hwdef.HWDef):
             ram0_len -= ram_reserve_start
         if ext_flash_length == 0 or self.is_bootloader_fw():
             self.env_vars['HAS_EXTERNAL_FLASH_SECTIONS'] = 0
-            f.write('''/* generated ldscript.ld */
+            if self.is_bootloader_fw() and self.mcu_series.startswith("CH32"):
+                # CH32 bootloader: WCH EVT-style layout - the V5F image is
+                # linked into the zero-wait CodeFlash alias window (256KB
+                # offset, core0/V3F stub lives in the first 256KB), hot
+                # code/rodata are copied into ITCM (RAM_CODE) at boot by
+                # the WCH crt0 (loadcode2vma), .data/.bss land in DTCM.
+                boot_flash_base = self.get_mcu_config('BOOT_FLASH_BASE', False)
+                if boot_flash_base is None:
+                    boot_flash_base = 0x00040000  # 0x00000000 + 256K
+                f.write('''/* generated ldscript.ld */
+MEMORY
+{
+    flash : org = 0x%08x, len = %uK
+    ram_code : org = 0x200A0000, len = 128K
+    ram : org = 0x200C0800, len = %u
+    ram_load : org = 0x200C0400, len = 256
+}
+
+INCLUDE common.ld
+''' % (boot_flash_base, flash_length, 256*1024 - 1024))
+            else:
+                f.write('''/* generated ldscript.ld */
 MEMORY
 {
     flash : org = 0x%08x, len = %uK
@@ -1544,6 +1565,10 @@ INCLUDE common.ld
 
         if self.is_bootloader_fw():
             linker = 'common.ld'
+            if self.mcu_series.startswith("CH32"):
+                # CH32 bootloader needs the WCH EVT-style linker support
+                # (.start/.load/.highcode sections)
+                linker = 'common_boot_ch32.ld'
         else:
             linker = self.get_mcu_config('LINKER_CONFIG')
         if linker is None:
@@ -2541,6 +2566,9 @@ Please run: Tools/scripts/build_bootloaders.py %s
                 f.write('#define STM32_I2C_USE_%s                  TRUE\n' % type)
             if type.startswith('QUADSPI'):
                 f.write('#define STM32_WSPI_USE_%s                 TRUE\n' % type)
+                if self.mcu_series.startswith("CH32"):
+                    # the CH32 WSPI driver keys on the periph number
+                    f.write('#define CH32_WSPI_USE_WSPI%u             TRUE\n' % int(type[7:]))
             if type.startswith('OCTOSPI'):
                 f.write('#define STM32_WSPI_USE_%s                 TRUE\n' % type)
 

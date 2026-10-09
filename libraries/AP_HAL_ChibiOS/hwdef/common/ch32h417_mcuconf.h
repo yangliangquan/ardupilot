@@ -225,54 +225,70 @@
 #endif
 
 #ifndef STM32_SERIAL_USE_USART1
-#define STM32_SERIAL_USE_USART1              CH32_SERIAL_USE_USART1
+#define STM32_SERIAL_USE_USART1              FALSE
 #endif
+#define CH32_SERIAL_USE_USART1              STM32_SERIAL_USE_USART1
 #ifndef STM32_SERIAL_USE_USART2
-#define STM32_SERIAL_USE_USART2              CH32_SERIAL_USE_USART2
+#define STM32_SERIAL_USE_USART2              FALSE
 #endif
+#define CH32_SERIAL_USE_USART2              STM32_SERIAL_USE_USART2
 #ifndef STM32_SERIAL_USE_USART3
-#define STM32_SERIAL_USE_USART3              CH32_SERIAL_USE_USART3
+#define STM32_SERIAL_USE_USART3              FALSE
 #endif
+#define CH32_SERIAL_USE_USART3              STM32_SERIAL_USE_USART3
 #ifndef STM32_SERIAL_USE_USART4
-#define STM32_SERIAL_USE_USART4              CH32_SERIAL_USE_USART4
+#define STM32_SERIAL_USE_USART4              FALSE
 #endif
+#define CH32_SERIAL_USE_USART4              STM32_SERIAL_USE_USART4
 #ifndef STM32_SERIAL_USE_USART5
-#define STM32_SERIAL_USE_USART5              CH32_SERIAL_USE_USART5
+#define STM32_SERIAL_USE_USART5              FALSE
 #endif
+#define CH32_SERIAL_USE_USART5              STM32_SERIAL_USE_USART5
 #ifndef STM32_SERIAL_USE_USART6
-#define STM32_SERIAL_USE_USART6              CH32_SERIAL_USE_USART6
+#define STM32_SERIAL_USE_USART6              FALSE
 #endif
+#define CH32_SERIAL_USE_USART6              STM32_SERIAL_USE_USART6
 #ifndef STM32_SERIAL_USE_USART7
-#define STM32_SERIAL_USE_USART7              CH32_SERIAL_USE_USART7
+#define STM32_SERIAL_USE_USART7              FALSE
 #endif
+#define CH32_SERIAL_USE_USART7              STM32_SERIAL_USE_USART7
 #ifndef STM32_SERIAL_USE_USART8
-#define STM32_SERIAL_USE_USART8              CH32_SERIAL_USE_USART8
+#define STM32_SERIAL_USE_USART8              FALSE
 #endif
+#define CH32_SERIAL_USE_USART8              STM32_SERIAL_USE_USART8
 
 #ifndef STM32_UART_USE_USART1
-#define STM32_UART_USE_USART1                CH32_UART_USE_USART1
+#define STM32_UART_USE_USART1              FALSE
 #endif
+#define CH32_UART_USE_USART1              STM32_UART_USE_USART1
 #ifndef STM32_UART_USE_USART2
-#define STM32_UART_USE_USART2                CH32_UART_USE_USART2
+#define STM32_UART_USE_USART2              FALSE
 #endif
+#define CH32_UART_USE_USART2              STM32_UART_USE_USART2
 #ifndef STM32_UART_USE_USART3
-#define STM32_UART_USE_USART3                CH32_UART_USE_USART3
+#define STM32_UART_USE_USART3              FALSE
 #endif
+#define CH32_UART_USE_USART3              STM32_UART_USE_USART3
 #ifndef STM32_UART_USE_USART4
-#define STM32_UART_USE_USART4                CH32_UART_USE_USART4
+#define STM32_UART_USE_USART4              FALSE
 #endif
+#define CH32_UART_USE_USART4              STM32_UART_USE_USART4
 #ifndef STM32_UART_USE_USART5
-#define STM32_UART_USE_USART5                CH32_UART_USE_USART5
+#define STM32_UART_USE_USART5              FALSE
 #endif
+#define CH32_UART_USE_USART5              STM32_UART_USE_USART5
 #ifndef STM32_UART_USE_USART6
-#define STM32_UART_USE_USART6                CH32_UART_USE_USART6
+#define STM32_UART_USE_USART6              FALSE
 #endif
+#define CH32_UART_USE_USART6              STM32_UART_USE_USART6
 #ifndef STM32_UART_USE_USART7
-#define STM32_UART_USE_USART7                CH32_UART_USE_USART7
+#define STM32_UART_USE_USART7              FALSE
 #endif
+#define CH32_UART_USE_USART7              STM32_UART_USE_USART7
 #ifndef STM32_UART_USE_USART8
-#define STM32_UART_USE_USART8                CH32_UART_USE_USART8
+#define STM32_UART_USE_USART8              FALSE
 #endif
+#define CH32_UART_USE_USART8              STM32_UART_USE_USART8
 
 #ifndef STM32_PWM_USE_TIM1
 #define STM32_PWM_USE_TIM1                   CH32_PWM_USE_TIM1
@@ -428,6 +444,12 @@ typedef uint32_t stkalign_t;
 #define USART_CR2_RXINV                      0  /* FIXME(CH32): no invert */
 /* WCH uses half-duplex select instead of driver-enable mode */
 #define USART_CR3_DEM                        USART_CTLR3_HDSEL
+
+/* WSPI/QSPI clock bridge: the QUADSPI-compatible controller is clocked
+   from the shared bus clock on this port. TODO(CH32): model the real
+   QSPI clock point in hal_lld. */
+#define STM32_QSPICLK                        HCLKClock
+#define STM32_OCTOSPICLK                     HCLKClock
 #define USART_CR3_HDSEL                      USART_CTLR3_HDSEL
 
 /*===========================================================================*/
@@ -700,18 +722,6 @@ extern uint32_t HCLKClock;
 
 /*===========================================================================*/
 /* SERIAL driver system settings.                                            */
-/* the AP serials: USART1(GPS1) USART2(TEL3) USART4(GPS2) USART5(TEL2)        */
-/*                 USART7(TEL1)                                               */
-/*===========================================================================*/
-#define CH32_SERIAL_USE_USART1             TRUE
-#define CH32_SERIAL_USE_USART2             TRUE
-#define CH32_SERIAL_USE_USART3             FALSE
-#define CH32_SERIAL_USE_USART4             TRUE
-#define CH32_SERIAL_USE_USART5             TRUE
-#define CH32_SERIAL_USE_USART6             FALSE
-#define CH32_SERIAL_USE_USART7             TRUE
-#define CH32_SERIAL_USE_USART8             FALSE
-
 /*===========================================================================*/
 /* SIO driver system settings.                                               */
 /*===========================================================================*/
@@ -728,14 +738,7 @@ extern uint32_t HCLKClock;
 /* UART driver system settings.                                              */
 /* The debug UART (USART3) uses the UART API.                                */
 /*===========================================================================*/
-#define CH32_UART_USE_USART1               FALSE
-#define CH32_UART_USE_USART2               FALSE
-#define CH32_UART_USE_USART3               TRUE
-#define CH32_UART_USE_USART4               FALSE
-#define CH32_UART_USE_USART5               FALSE
-#define CH32_UART_USE_USART6               FALSE
-#define CH32_UART_USE_USART7               FALSE
-#define CH32_UART_USE_USART8               FALSE
+
 #define CH32_UART_USART1_IRQ_PRIORITY      8
 #define CH32_UART_USART2_IRQ_PRIORITY      8
 #define CH32_UART_USART3_IRQ_PRIORITY      8

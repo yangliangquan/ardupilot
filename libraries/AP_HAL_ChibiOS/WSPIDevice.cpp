@@ -39,7 +39,10 @@ static const struct WSPIDriverInfo {
 } wspi_devices[] = { HAL_WSPI_BUS_LIST };
 
 #define WSPIDEV_MODE1 0
-#if HAL_USE_QUADSPI
+#if defined(CH32H417)
+/* the WCH WSPI driver uses a direct ckmode field (0=Mode0, 1=Mode3) */
+#define WSPIDEV_MODE3 1
+#elif HAL_USE_QUADSPI
 #define WSPIDEV_MODE3 STM32_DCR_CK_MODE
 #else
 #define WSPIDEV_MODE3 STM32_DCR1_CK_MODE
@@ -59,11 +62,13 @@ WSPIDesc WSPIDeviceManager::device_table[] = { HAL_WSPI_DEVICE_LIST };
 #endif
 
 #if defined(STM32_WSPI_USE_QUADSPI2) && STM32_WSPI_USE_QUADSPI2
+#if !defined(CH32H417) || !defined(HAL_QSPI2_CLK)
 #if (STM32_QSPICLK < HAL_QSPI2_CLK)
 #error "Flash speed must not be greater than QSPI Clock"
 #endif
 #if (STM32_QSPICLK % HAL_QSPI2_CLK)
 #warning "WSPI clock not an integer multiple of flash speed"
+#endif
 #endif
 #endif
 
@@ -87,7 +92,9 @@ WSPIDesc WSPIDeviceManager::device_table[] = { HAL_WSPI_DEVICE_LIST };
 
 bool WSPIDevice::is_busy()
 {
-#if HAL_USE_OCTOSPI
+#if defined(CH32H417)
+    return (wspi_devices[device_desc.bus].driver->qspi->SR & QSPI_SR_BUSY) != 0U;
+#elif HAL_USE_OCTOSPI
     return (wspi_devices[device_desc.bus].driver->ospi->SR & OCTOSPI_SR_BUSY) != 0U;
 #else
     return (wspi_devices[device_desc.bus].driver->qspi->SR & QUADSPI_SR_BUSY) != 0U;
@@ -145,7 +152,16 @@ bool WSPIDevice::acquire_bus(bool acquire)
             // Initialise and Start WSPI driver
             bus.wspicfg.end_cb = nullptr;
             bus.wspicfg.error_cb = nullptr;
-#if HAL_USE_QUADSPI
+#if defined(CH32H417)
+            /* the WCH WSPI driver exposes explicit config fields */
+            bus.wspicfg.prescaler = (STM32_QSPICLK / device_desc.speed) - 1U;
+            bus.wspicfg.ckmode = device_desc.mode;
+            bus.wspicfg.cshtime = device_desc.ncs_clk_delay;
+            bus.wspicfg.fsize = device_desc.size_pow2;
+            bus.wspicfg.fifo_threshold = 0;
+            bus.wspicfg.fselect = 0;
+            bus.wspicfg.dfm = 0;
+#elif HAL_USE_QUADSPI
             bus.wspicfg.dcr = STM32_DCR_FSIZE(device_desc.size_pow2) |
                               STM32_DCR_CSHT(device_desc.ncs_clk_delay - 1)   |
                               device_desc.mode;

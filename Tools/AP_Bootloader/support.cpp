@@ -18,6 +18,7 @@
 #include "mcu_h7.h"
 #include "mcu_g4.h"
 #include "mcu_l4.h"
+#include "mcu_ch32.h"
 
 // optional uprintf() code for debug
 // #define BOOTLOADER_DEBUG SD1
@@ -243,7 +244,13 @@ bool flash_write_buffer(uint32_t address, const uint32_t *v, uint8_t nwords)
 
 uint32_t get_mcu_id(void)
 {
+#if defined(CH32H417)
+    /* no DBGMCU_IDCODE at the STM32 address on this part; report the
+       SYS_IDCODE placeholder (FIXME(CH32): verify the core ID register) */
+    return 0x417;
+#else
     return *(uint32_t *)DBGMCU_BASE;
+#endif
 }
 
 #define REVID_MASK	0xFFFF0000
@@ -251,7 +258,11 @@ uint32_t get_mcu_id(void)
 
 uint32_t get_mcu_desc(uint32_t max, uint8_t *revstr)
 {
+#if defined(CH32H417)
+    uint32_t idcode = 0x417;
+#else
     uint32_t idcode = (*(uint32_t *)DBGMCU_BASE);
+#endif
     int32_t mcuid = idcode & DEVID_MASK;
     uint16_t revid = ((idcode & REVID_MASK) >> 16);
 
@@ -341,7 +352,11 @@ void uprintf(const char *fmt, ...)
     char umsg[200];
     if (!initialised) {
         initialised = true;
+        #if defined(CH32H417)
+        debug_sercfg.baud = 57600;
+#else
         debug_sercfg.speed = 57600;
+#endif;
         sdStart(&BOOTLOADER_DEBUG, &debug_sercfg);
     }
     va_start(ap, fmt);
@@ -469,7 +484,11 @@ void init_uarts(void)
 #endif
 
 #if HAL_USE_SERIAL == TRUE
+    #if defined(CH32H417)
+    sercfg.baud = BOOTLOADER_BAUDRATE;
+#else
     sercfg.speed = BOOTLOADER_BAUDRATE;
+#endif;
 
     for (const auto &uart : uarts) {
 #if HAL_USE_SERIAL_USB == TRUE
@@ -496,8 +515,8 @@ static uint32_t otg2_serial_deadline_ms;
 bool update_otg2_serial_forward()
 {
     // get baudrate set on SDU2 and set it on BOOTLOADER_FORWARD_OTG2_SERIAL if changed
-    if (forward_sercfg.speed != BOOTLOADER_FORWARD_OTG2_SERIAL_BAUDRATE) {
-        forward_sercfg.speed = BOOTLOADER_FORWARD_OTG2_SERIAL_BAUDRATE;
+    if (forward_sercfg.baud != BOOTLOADER_FORWARD_OTG2_SERIAL_BAUDRATE) {
+        forward_sercfg.baud = BOOTLOADER_FORWARD_OTG2_SERIAL_BAUDRATE;
 #if defined(BOOTLOADER_FORWARD_OTG2_SERIAL_SWAP) && BOOTLOADER_FORWARD_OTG2_SERIAL_SWAP
         forward_sercfg.cr2 = USART_CR2_SWAP;
 #endif
@@ -539,7 +558,11 @@ void port_setbaud(uint32_t baudrate)
 #endif
 #if HAL_USE_SERIAL == TRUE
     memset(&sercfg, 0, sizeof(sercfg));
+    #if defined(CH32H417)
+    sercfg.baud = baudrate;
+#else
     sercfg.speed = baudrate;
+#endif;
     sdStart((SerialDriver *)uarts[last_uart], &sercfg);
 #endif
 }
