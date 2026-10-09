@@ -168,6 +168,12 @@ class generate_bin(Task.Task):
     def keyword(self):
         return "Generating"
     def run(self):
+        # board-specific flash ranges (set from the hwdef) take precedence
+        if 'EXT_FLASH_ADDR_START' in self.env:
+            self.EXTF_MEMORY_START = int(self.env.EXT_FLASH_ADDR_START)
+            self.EXTF_MEMORY_END = int(self.env.EXT_FLASH_ADDR_END)
+            self.INTF_MEMORY_START = int(self.env.INT_FLASH_ADDR_START)
+            self.INTF_MEMORY_END = int(self.env.INT_FLASH_ADDR_END)
         if self.env.HAS_EXTERNAL_FLASH_SECTIONS:
             ret = self.split_sections()
             if (ret < 0):
@@ -565,7 +571,7 @@ def setup_optimization(env):
 def configure(cfg):
     cfg.find_program('make', var='MAKE')
     #cfg.objcopy = cfg.find_program('%s-%s'%(cfg.env.TOOLCHAIN,'objcopy'), var='OBJCOPY', mandatory=True)
-    cfg.find_program('arm-none-eabi-objcopy', var='OBJCOPY')
+    cfg.find_program('%s-objcopy' % cfg.env.TOOLCHAIN, var='OBJCOPY')
     env = cfg.env
 
     # Flash and FATFS use the same crash dump in a mutually exclusive way.

@@ -1410,6 +1410,30 @@ class chibios(Board):
     def get_name(self):
         return self.name
 
+class chibios_riscv(chibios):
+    '''abstract base class for RISC-V based ChibiOS boards (CH32, ...)
+
+    key differences from the ARM (Cortex-M) chibios boards:
+      - different toolchain prefix (riscv-wch-elf)
+      - no thumb/interwork flags
+      - no ARM Cortex-M startfiles path
+      - cortex flags come from the hwdef chip script
+    '''
+    abstract = True
+    toolchain = 'riscv-wch-elf'
+
+    def configure_env(self, cfg, env):
+        super(chibios_riscv, self).configure_env(cfg, env)
+        arm_only = ['-mno-thumb-interwork', '-mthumb',
+                    '-u_port_lock', '-u_port_unlock']
+        env.CFLAGS = [f for f in env.CFLAGS if f not in arm_only]
+        env.LINKFLAGS = [f for f in env.LINKFLAGS if f not in arm_only]
+        # drop the ARM-specific startup ld path
+        env.LINKFLAGS = [f for f in env.LINKFLAGS if 'ARMCMx' not in f]
+
+    def get_name(self):
+        return self.__class__.__name__
+
 class LinuxBoard(Board):
     '''an abstract base class for Linux boards to inherit from'''
     abstract = True
@@ -1518,6 +1542,10 @@ class LinuxBoard(Board):
     def get_name(self):
         # get name of class
         return self.__class__.__name__
+
+class CCHv6c(chibios_riscv):
+    # hwdef is picked up from libraries/AP_HAL_ChibiOS/hwdef/CCHv6c
+    name = 'CCHv6c'
 
 class QURTBoard(Board):
     '''support for QURT based boards'''
