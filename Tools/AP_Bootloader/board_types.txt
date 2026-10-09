@@ -17,6 +17,7 @@ TARGET_HW_ARK_PI6X                     58
 TARGET_HW_ARK_FPV                      59
 TARGET_HW_ARK_FMU_V6S                  61
 TARGET_HW_MINDPX_V2                    88
+TARGET_HW_CCH_V6C                    41778
 TARGET_HW_PX4_FLOW_V1                   6
 TARGET_HW_PX4_DISCOVERY_V1             99
 TARGET_HW_PX4_PIO_V1                   10
