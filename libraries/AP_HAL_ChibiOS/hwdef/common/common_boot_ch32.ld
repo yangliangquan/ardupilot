@@ -67,6 +67,9 @@ SECTIONS
         . = ALIGN(4);
         PROVIDE(_loadcode_vma_start = .);
         *(.load);
+        /* V5F crt0 reset flow + port IRQ entry must ride along with the
+           copy (the copy loop covers _highcode_vma_start.._end only) */
+        KEEP(*(SORT_NONE(.handle_reset)))
         . = ALIGN(4);
         PROVIDE(_loadcode_vma_end = .);
     } > ram_load AT> flash
@@ -87,9 +90,6 @@ SECTIONS
         KEEP(*(SORT_NONE(.vector_handler)))
         *(.text)
         *(.text.*)
-        /* V5F crt0 reset flow + port IRQ entry must ride along with the
-           copy (the copy loop covers _highcode_vma_start.._end only) */
-        KEEP(*(SORT_NONE(.handle_reset)))
         *(.irq_entry)
         *(.rodata)
         *(.rodata*)
@@ -115,6 +115,11 @@ SECTIONS
 
     .init_array :
     {
+        /* loadcode2vma() copies [_highcode_vma_start1, _highcode_vma_end1)
+           from _highcode_lma1, so the source LMA must be that of the first
+           section of the range (.init_array), not of .ctors */
+        _highcode_lma1 = LOADADDR(.init_array);
+        _highcode_vma_start1 = .;
         __init_array_base__ = .;
         __init_array_start = .;
         KEEP(*(SORT(.init_array.*)))
@@ -135,19 +140,38 @@ SECTIONS
 
     /* second .fini/highcode window that the WCH crt1 loadcode2vma()
        also walks; keep it empty but well-formed */
-    .highcodelalign1 :
-    {
-        . = ALIGN(4);
-        PROVIDE(_highcode_lma1 = .);
-    } > flash AT> flash
+    .ctors : ALIGN(4)
+	{
+        /* gcc uses crtbegin.o to find the start of
+            the constructors, so we make sure it is
+            first.  Because this is a wildcard, it
+            doesn't matter if the user does not
+            actually link against crtbegin.o; the
+            linker won't look for a file to match a
+            wildcard.  The wildcard also means that it
+            doesn't matter which directory crtbegin.o
+            is in.  */
+        KEEP (*crtbegin.o(.ctors))
+        KEEP (*crtbegin?.o(.ctors))
+        /* We don't want to include the .ctor section from
+            the crtend.o file until after the sorted ctors.
+            The .ctor section from the crtend file contains the
+            end of ctors marker and it must be last */
+        KEEP (*(EXCLUDE_FILE (*crtend.o *crtend?.o ) .ctors))
+        KEEP (*(SORT(.ctors.*)))
+        KEEP (*(.ctors))
+	} >ram_code AT> flash 
 
-    .highcode1 :
-    {
-        . = ALIGN(4);
-        PROVIDE(_highcode_vma_start1 = .);
-        . = ALIGN(4);
-        PROVIDE(_highcode_vma_end1 = .);
-    } > ram_code AT> flash
+	.dtors :
+	{
+        KEEP (*crtbegin.o(.dtors))
+        KEEP (*crtbegin?.o(.dtors))
+        KEEP (*(EXCLUDE_FILE (*crtend.o *crtend?.o ) .dtors))
+        KEEP (*(SORT(.dtors.*)))
+        KEEP (*(.dtors))
+        . = ALIGN(4); 
+        _highcode_vma_end1 = .;
+	} >ram_code AT> flash 
 
     . = ALIGN(4);
     PROVIDE(_etext = .);
@@ -207,6 +231,9 @@ SECTIONS
     {
         . = ALIGN(4);
         __bss_base__ = .;
+        /* WCH crt1.c clearbss() zeroes words from _sbss to _ebss, so
+           _sbss MUST be the start of the section content, not the end */
+        PROVIDE(_sbss = .);
         *(.bss)
         *(.bss.*)
         *(.sbss)
@@ -215,7 +242,6 @@ SECTIONS
         *(COMMON)
         . = ALIGN(4);
         __bss_end__ = .;
-        PROVIDE(_sbss = .);
         PROVIDE(_ebss = .);
         PROVIDE(end = .);
     } > BSS_RAM
