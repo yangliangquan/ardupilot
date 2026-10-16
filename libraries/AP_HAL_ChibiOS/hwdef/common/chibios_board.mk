@@ -135,9 +135,7 @@ endif
 # C sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
 
-CSRC = $(sort $(ALLCSRC))
-
-CSRC += $(HWDEF)/common/stubs.c \
+CSRC = $(HWDEF)/common/stubs.c \
         $(HWDEF)/common/board.c \
         $(HWDEF)/common/usbcfg.c \
         $(HWDEF)/common/usbcfg_dualcdc.c \
@@ -149,6 +147,8 @@ CSRC += $(HWDEF)/common/stubs.c \
         $(HWDEF)/common/bouncebuffer.c \
         $(HWDEF)/common/watchdog.c \
         $(HWDEF)/common/sysperf.c
+
+CSRC += $(sort $(ALLCSRC))
 
 ifeq ($(USE_USB_MSD),yes)
 CSRC += $(CHIBIOS)/os/various/scsi_bindings/lib_scsi.c \
