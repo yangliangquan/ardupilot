@@ -1860,6 +1860,33 @@ bool UARTDriver::set_RTS_pin(bool high)
 }
 
 #if HAL_USE_SERIAL_USB == TRUE
+#if defined(CH32H417)
+/*
+  The WCH USBFS controller has no SOF interrupt, so the SDU partial-buffer
+  flush that ChibiOS normally drives from the SOF hook has to be emulated
+  with a 1ms timer (same workaround as the bootloader, see
+  Tools/AP_Bootloader/bl_protocol.cpp). Without it short writes sit in a
+  half-filled output buffer and the host never sees them.
+ */
+static virtual_timer_t usb_sof_vt;
+
+static void usb_sof_timer(virtual_timer_t* vt, void *ctx)
+{
+    (void)ctx;
+
+    chSysLockFromISR();
+
+    chVTSetI(vt, chTimeMS2I(1), usb_sof_timer, nullptr);
+
+    sduSOFHookI(&SDU1);
+#if HAL_HAVE_DUAL_USB_CDC
+    sduSOFHookI(&SDU2);
+#endif
+
+    chSysUnlockFromISR();
+}
+#endif // CH32H417
+
 /*
   initialise the USB bus, called from both UARTDriver and stdio for startup debug
   This can be called before the hal is initialised so must not call any hal functions
@@ -1886,6 +1913,11 @@ void usb_initialise(void)
     chThdSleep(chTimeUS2I(1500));
     usbStart(serusbcfg1.usbp, &usbcfg);
     usbConnectBus(serusbcfg1.usbp);
+#if defined(CH32H417)
+    // no SOF interrupt on this controller, poll the SDU output buffers instead
+    chVTObjectInit(&usb_sof_vt);
+    chVTSet(&usb_sof_vt, chTimeMS2I(1), usb_sof_timer, nullptr);
+#endif
 }
 #endif
 
