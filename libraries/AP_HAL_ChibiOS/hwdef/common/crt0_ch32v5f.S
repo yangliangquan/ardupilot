@@ -29,6 +29,12 @@
                          linker script with empty ranges, and no copy is
                          performed.
 
+                         The hot code and the data are still copied out of
+                         the flash before main(): loadcode2vma() walks the
+                         two _highcode_* windows (ITCM and AXI SRAM, see
+                         common_extf_ch32.ld) and loaddata2vma() walks
+                         .data.
+
                          The PART is released by the core included with the
                          ChibiOS/RT RISC-V port and the WCH crt1.c startup
                          stubs (_data_lma/_data_vma, _sbss/_ebss,
@@ -44,6 +50,15 @@
 
 #if !defined(TRUE) || defined(__DOXYGEN__)
 #define TRUE                                1
+#endif
+
+/**
+ * @brief   CODE segments initialization switch.
+ * @details Copies the _highcode_* windows (see common_extf_ch32.ld) from
+ *          the external flash into ITCM / AXI SRAM.
+ */
+#if !defined(CRT0_INIT_CODE) || defined(__DOXYGEN__)
+#define CRT0_INIT_CODE                      TRUE
 #endif
 
 /**
@@ -111,6 +126,13 @@ _start:
 	csrc 0x800, t0
 	fence.i
 
+#ifdef HARDWARE_STACK
+	/* QingKe hardware prologue stack setup, same as the port crt0. */
+	li t0, 0x07
+	csrw 0x804, t0
+	fence.i
+#endif
+
 	/* Jump straight to the real startup code; under XIP there is no
 	   .load section copy to perform. */
 	la t0, handle_reset
@@ -134,19 +156,35 @@ handle_reset:
 	li t0, 0x123703E1
 	csrw 0xBC0, t0
 
-	/* Enable the FPU and global interrupts, privileged mode. */
+	/* Enable the FPU and global interrupts, privileged mode; also set
+	   MPIE so the kernel mret into _main keeps interrupts enabled. This
+	   is owned by this image from here on: any interrupt or exception
+	   taken now is served by this image's vector table (the bootloader
+	   keeps all PFIC enables cleared for this window). */
 	li t0, 0x7888
 	csrw mstatus, t0
 
 	/* Configure the interrupt vector table recognition mode and entry
-	   address mode: direct mode, port IRQ handler. */
-	.extern _port_irq_handler
-	la t0, _port_irq_handler
+	   address mode as the port crt0 does: mtvec points to the (data
+	   copied) _vector_table with hardware prologue mode. No interrupt
+	   source is enabled yet (PFIC enables came up cleared), so the
+	   window with the .vector copy not yet loaded by loaddata2vma()
+	   below cannot deliver an IRQ. */
+	.extern _vector_table
+	la t0, _vector_table
+	ori t0, t0, 3
 	csrw mtvec, t0
 
 	/* NOTE: the system clock is NOT touched here. The bootloader has
 	   already configured SYSCLK and the QSPI2 XIP window. The ChibiOS
 	   hal_lld clock configuration must verify and keep the tree. */
+
+	/* Copy the two RAM code windows (.fastcode -> ITCM and .ramfunc ->
+	   AXI SRAM) out of the external flash. Everything else is XIP, so
+	   this is the only code copy besides .data (loaddata2vma, below). */
+#if CRT0_INIT_CODE == TRUE
+	call	loadcode2vma
+#endif
 
 	/* VMDA-special core init hook. */
 #if CRT0_INIT_CORE == TRUE
@@ -169,16 +207,16 @@ handle_reset:
 	call	clearbss
 #endif
 
-#if CRT0_CALL_CONSTRUCTORS
-	call	call_constructors
-#endif
-
 #if CRT0_INIT_RAM_AREAS == TRUE
 	/* RAM areas initialization ($area when CRT0_AREAS_NUMBER > 1). */
 	call	__init_ram_areas
 #endif
 
 	call	__late_init
+
+#if CRT0_CALL_CONSTRUCTORS
+	call	call_constructors
+#endif
 
 la t0, _main
 	csrw mepc, t0
