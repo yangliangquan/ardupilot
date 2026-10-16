@@ -83,14 +83,15 @@ SECTIONS
     /* hot code + rodata: copied to ITCM at boot */
     .highcode :
     {
-        . = ALIGN(4);
+        . = ALIGN(1024);
         PROVIDE(_highcode_vma_start = .);
         PROVIDE(vector_start = .);
-        *(.vector);
+        *(.vector)
+        . = ALIGN(4);
+        *(.irq_entry)
         KEEP(*(SORT_NONE(.vector_handler)))
         *(.text)
         *(.text.*)
-        *(.irq_entry)
         *(.rodata)
         *(.rodata*)
         *(.glue_7)
@@ -177,27 +178,20 @@ SECTIONS
     PROVIDE(_etext = .);
     PROVIDE(_eitcm = .);
 
-    /* Special section for exceptions stack.*/
-    .mstack :
-    {
-        . = ALIGN(16);
-        __main_stack_base__ = .;
-        . += __main_stack_size__;
-        . = ALIGN(16);
-        __main_stack_end__ = .;
-        PROVIDE(_eusrstack = .);
-        __main_stack_top__ = .;
-    } > MAIN_STACK_RAM
-
     /* Special section for process stack.*/
     .pstack :
     {
+        __main_stack_base__ = .;
         __process_stack_base__ = .;
         __main_thread_stack_base__ = .;
         . += __process_stack_size__;
+        . += __main_stack_size__;
         . = ALIGN(16);
         __process_stack_end__ = .;
         __main_thread_stack_end__ = .;
+        __main_stack_end__ = .;
+        PROVIDE(_eusrstack = .);
+        __main_stack_top__ = .;
     } > PROCESS_STACK_RAM
 
     .data : ALIGN(4)

@@ -12,267 +12,182 @@
     this file is included by the board specific ldscript.ld which is
     generated from hwdef.dat
 
-    CH32H417 variant of the external-flash application layout:
-    the whole application (text/rodata/const/loads) lives in the
-    QSPI flash memory-mapped window and executes in place (XIP).
-    ITCM (instram) holds hot code, DTCM (dataram) holds hot data,
-    part of the AXI SRAM (ram1/flashram) holds RAM-copied functions,
-    the rest of the AXI SRAM (ram0) holds data/stacks/heap.
+    CH32H417 (QingKe V5F) application: XIP from the external QSPI flash,
+    which the bootloader has already mapped and clocked.
 
-    The symbols _loadcode_*, _highcode_*, _data_lma/_data_vma,
-    _sbss/_ebss, __process_stack_base__/_end follow the WCH
-    RISCV-QINGKE crt0.S / crt1.c conventions used by the CH32 port,
-    so the stock V5F startup files can be used unchanged. The .load
-    copy is unused (VTF zero-wait flash trick is not needed when
-    running from QSPI) and is given an empty range.
+      0x70000000  1K fw_describer, then .text/.rodata run from flash
+      instram    0x200A0000  128K ITCM, hot code
+      flashram   0x20100000  64K  AXI SRAM, next most critical code
+      dataram    0x200C0000  256K DTCM, stacks/.data/.bss (first 512B lost)
+      ram0       0x20110000  448K shared SRAM, DMA buffers and heap
+
+    Three images are copied into RAM before main(), and the V5F startup
+    only has two copy loops, so a new RAM image has to be folded into one
+    of them:
+
+      .fastcode  ITCM      _highcode_lma  / _highcode_vma_start/_end
+      .ramfunc   flashram  _highcode_lma1 / _highcode_vma_start1/_end1
+                                 both walked by crt1.c loadcode2vma()
+      .data      DTCM      _data_lma      / _data_vma/_edata
+                                 walked by crt1.c loaddata2vma()
+
+    .bss is cleared by crt1.c clearbss(), and __init_ram_areas() (board.c)
+    only zeroes the .ram0_clear range. The ChibiOS __ramN_init__ /
+    __ramN_clear__ / __ramN_noinit__ mechanism is deliberately NOT used
+    here: nothing on the RISC-V port reads those symbols.
 */
 
-/* RAM region to be used for fast code. */
-REGION_ALIAS("FASTCODE_RAM", flashram)
+/* the first 512B of DTCM are unusable on this part */
+__dtcm_reserved__ = 0x200;
 
-/* RAM region to be used for Main stack. This stack accommodates the processing
-   of all exceptions and interrupts*/
-REGION_ALIAS("MAIN_STACK_RAM", ram0);
-
-/* RAM region to be used for the process stack. This is the stack used by
-   the main() function.*/
-REGION_ALIAS("PROCESS_STACK_RAM", ram0);
-
-/* RAM region to be used for data segment.*/
-REGION_ALIAS("DATA_RAM", ram0);
-
-/* RAM region to be used for BSS segment.*/
-REGION_ALIAS("BSS_RAM", ram0);
-
-/* RAM region to be used for the default heap.*/
+/* stacks/.data/.bss in DTCM: zero wait, and not reachable by DMA */
+/* heap in the shared SRAM: large and DMA capable */
+REGION_ALIAS("MAIN_STACK_RAM", dataram);
+REGION_ALIAS("PROCESS_STACK_RAM", dataram);
+REGION_ALIAS("DATA_RAM", dataram);
+REGION_ALIAS("BSS_RAM", dataram);
 REGION_ALIAS("HEAP_RAM", ram0);
 
-/* The ChibiOS crt code looks at all of the __ramx_xxxx__ sections
-   it will copy from __ramx_init_text__ to __ramx_init__ until __ramx_clear__ is hit
-   it will then clear from __ramx_clear__ to __ramx_no_init__
-   the number of areas actually used is determined by CRT0_AREAS_NUMBER
- */
+__ram0_start__ = ORIGIN(ram0);
+__ram0_size__  = LENGTH(ram0);
+__ram0_end__   = __ram0_start__ + __ram0_size__;
 
-/* AXI SRAM */
-__ram0_start__          = ORIGIN(ram0);
-__ram0_size__           = LENGTH(ram0);
-__ram0_end__            = __ram0_start__ + __ram0_size__;
+__ram1_start__ = ORIGIN(flashram);
+__ram1_size__  = LENGTH(flashram);
+__ram1_end__   = __ram1_start__ + __ram1_size__;
 
-/* AXI for RAM functions */
-__ram1_start__          = ORIGIN(flashram);
-__ram1_size__           = LENGTH(flashram);
-__ram1_end__            = __ram1_start__ + __ram1_size__;
+__ram2_start__ = ORIGIN(dataram);
+__ram2_size__  = LENGTH(dataram);
+__ram2_end__   = __ram2_start__ + __ram2_size__;
 
-/* DTCM */
-__ram2_start__          = ORIGIN(dataram);
-__ram2_size__           = LENGTH(dataram);
-__ram2_end__            = __ram2_start__ + __ram2_size__;
-
-/* ITCM for RAM functions */
-__ram3_start__          = ORIGIN(instram);
-__ram3_size__           = LENGTH(instram);
-__ram3_end__            = __ram3_start__ + __ram3_size__;
+__ram3_start__ = ORIGIN(instram);
+__ram3_size__  = LENGTH(instram);
+__ram3_end__   = __ram3_start__ + __ram3_size__;
 
 ENTRY( _start )
 
 SECTIONS
 {
-    . = 0;
-    _text = .;
-
-    /* The .start and .handle_reset sections come from the WCH V5F
-       crt0.S; they execute in place from the QSPI window */
-    .start : ALIGN(4) SUBALIGN(4)
-    {
-        __textvectors_base__ = LOADADDR(.start);
-        __vectors_base__ = .;
-        KEEP(*(.start))
-        __vectors_end__ = .;
-    } > default_flash
-    __firmware_crc_start__ = LOADADDR(.start);
-    __firmware_crc_ext_start__ = 0;
-    __firmware_crc_ext_end__ = 0;
-
-    constructors : ALIGN(4) SUBALIGN(4)
-    {
-        __init_array_base__ = .;
-        /* WCH crt1.c expects GCC-provided start/end names */
-        __init_array_start__ = .;
-        KEEP(*(SORT(.init_array.*)))
-        KEEP(*(.init_array))
-        __init_array_end__ = .;
-        __init_array_end = .;
-        __init_array_start = .;
-    } > default_flash
-
-    destructors : ALIGN(4) SUBALIGN(4)
-    {
-        __fini_array_base__ = .;
-        __fini_array_start = .;
-        KEEP(*(.fini_array))
-        KEEP(*(SORT(.fini_array.*)))
-        __fini_array_end__ = .;
-        __fini_array_end = .;
-    } > default_flash
-
-    /* INSTRUCTION_RAM area is ITCM, used for hot code */
-    .fastramfunc : ALIGN(4) SUBALIGN(4)
+    /* The bootloader reads word 0 as the initial SP and word 1 as the
+       entry point, then refuses to boot if either is 0xFFFFFFFF or if the
+       entry is below APP_START_ADDRESS. */
+    .fw_describer ORIGIN(default_flash) : ALIGN(4)
     {
         . = ALIGN(4);
-        __ram3_init_text__ = LOADADDR(.fastramfunc);
-        __ram3_init__ = .;
-        /* performance critical sections of ChibiOS */
-        EXCLUDE_FILE (*vectors.o *crt0.o *crt1.o  *chprintf.o) *libch.a:ch*.*(.text*)
-        *libch.a:nvic.*(.text*)
+        __fw_describer_base__ = .;
+        LONG(_eusrstack);
+        LONG(_start);
+        KEEP(*(.app_descriptor))
+        KEEP(*(.apsec_data))
+        . = ALIGN(1024);
+        __fw_describer_end__ = .;
+    } > default_flash
+
+    . = ALIGN(1024);
+    _text = .;
+
+    /* .start/.handle_reset run before anything is copied into RAM */
+    .start :
+    {
+        . = ALIGN(4);
+        _sinit = .;
+        KEEP(*(SORT_NONE(.start)))
+        . = ALIGN(4);
+        _einit = .;
+    } > default_flash
+
+    /* _port_irq_handler, the unified interrupt entry: the hardware needs
+       it on a 1K boundary and it runs on every interrupt, so it goes in
+       ITCM. It sits ahead of .fastcode so that the loadcode2vma() window
+       below is still one unpadded contiguous run. */
+    .irq_entry : ALIGN(4) SUBALIGN(4)
+    {
+        PROVIDE(irq_entry_lma = LOADADDR(.irq_entry));
+        PROVIDE(irq_entry_vma = .);
+        . = ALIGN(4);
+        KEEP(*(.irq_entry))
+        . = ALIGN(4);
+        PROVIDE(irq_entry_vma_end = .);
+    } > instram AT > default_flash
+
+    /* ITCM. Keep the list tight: 128K only, and the QSPI prefetcher is
+       already good enough for the bulk of the code. */
+    .fastcode : ALIGN(4) SUBALIGN(4)
+    {
+        . = ALIGN(4);
+        /* loadcode2vma() copies word by word from _highcode_lma, so this
+           must be one tightly packed run: same input sections, same order
+           in the VMA and in the LMA, nothing in between */
+        PROVIDE(_highcode_vma_start = .);
+        *libch.a:ch*.*(.text*)
+        *libch.a:hal*.*(.text*)
+        *libch.a:hrt.*(.text*)
         *libch.a:bouncebuffer.*(.text*)
-        *libch.a:stm32_util.*(.text*)
-        *libch.a:ch32_dma.*(.text*)
         *libch.a:memstreams.*(.text*)
         *libch.a:malloc.*(.text*)
-        *libch.a:hrt.*(.text*)
-        EXCLUDE_FILE (*hal_lld.o) *libch.a:hal*.*(.text*)
-        /* a selection of performance critical functions driven CPUInfo results */
         lib/lib*.a:Semaphores.*(.text*)
         lib/lib*.a:AP_Math.*(.text*)
         lib/lib*.a:vector3.*(.text*)
         lib/lib*.a:matrix3.*(.text*)
-        /* the attitude controller runs at loop rate and needs to be optimized */
-        lib/lib*.a:AC_AttitudeControl*.*(.text*)
-        lib/lib*.a:AC_PID*.*(.text*)
-        *libm.a:*(.text*)
-        *(.fastramfunc)
+        *(.fastramfunc)         /* also PORT_IRQ_ATTRIBUTES */
+        *(.fastcode*)
         . = ALIGN(4);
+        PROVIDE(_highcode_vma_end = .);
     } > instram AT > default_flash
+    PROVIDE(_highcode_lma = LOADADDR(.fastcode));
 
-    .ram3 (NOLOAD) : ALIGN(4)
-    {
-        . = ALIGN(4);
-        __ram3_clear__ = .;
-        . = ALIGN(4);
-        __ram3_noinit__ = .;
-        . = ALIGN(4);
-        __ram3_free__ = .;
-        . = ALIGN(4);
-    } > instram
-
-    /* FLASH_RAM area is an AXI SRAM bank used for large RAM-copied functions */
+    /* AXI SRAM. Only 64K on this part, so the EKF and the filter
+       libraries are deliberately left XIP. */
     .ramfunc : ALIGN(4) SUBALIGN(4)
     {
         . = ALIGN(4);
-        __ram1_init_text__ = LOADADDR(.ramfunc);
-        __ram1_init__ = .;
-        /* a selection of larger performance critical functions */
-        lib/lib*.a:LowPassFilter2p.*(.text* .rodata*)
-        lib/lib*.a:LowPassFilter.*(.text* .rodata*)
-        lib/lib*.a:NotchFilter.*(.text* .rodata*)
-        lib/lib*.a:HarmonicNotchFilter.*(.text* .rodata*)
+        PROVIDE(_highcode_vma_start1 = .);
+        lib/lib*.a:Semaphores.*(.text* .rodata*)
+        lib/lib*.a:AP_Math.*(.text* .rodata*)
+        lib/lib*.a:vector3.*(.text* .rodata*)
+        lib/lib*.a:RingBuffer.*(.text* .rodata*)
+        lib/lib*.a:crc.*(.text* .rodata*)
         lib/lib*.a:Util.*(.text* .rodata*)
         lib/lib*.a:Device.*(.text* .rodata*)
+        lib/lib*.a:SPIDevice.*(.text* .rodata*)
+        lib/lib*.a:I2CDevice.*(.text* .rodata*)
         lib/lib*.a:Scheduler.*(.text* .rodata*)
-        lib/lib*.a:RingBuffer.*(.text* .rodata*)
-        lib/lib*.a:shared_dma.*(.text* .rodata*)
-        lib/lib*.a:crc.*(.text* .rodata*)
-        lib/lib*.a:matrixN.*(.text* .rodata*)
-        lib/lib*.a:matrix_alg.*(.text* .rodata*)
-        lib/lib*.a:vector2.*(.text* .rodata*)
-        lib/lib*.a:quaternion.*(.text* .rodata*)
-        lib/lib*.a:polygon.*(.text* .rodata*)
-        *(.ramfunc*)
+        *libm.a:*(.text*)
+        *(.ramfunc*)            /* __RAMFUNC__ */
         . = ALIGN(4);
+        PROVIDE(_highcode_vma_end1 = .);
     } > flashram AT > default_flash
+    PROVIDE(_highcode_lma1 = LOADADDR(.ramfunc));
 
-    .ram1 (NOLOAD) : ALIGN(4)
+    /* burn the unusable first 512B so the DTCM users below start at +0x200 */
+    .dtcm_reserved (NOLOAD) :
     {
-        . = ALIGN(4);
-        __ram1_clear__ = .;
-        . = ALIGN(4);
-        __ram1_noinit__ = .;
-        . = ALIGN(4);
-        __ram1_free__ = .;
-        . = ALIGN(4);
-    } > flashram
-
-    /* DATA_RAM area is DTCM primarily used for RAM-based data, e.g. vtables */
-    .ramdata : ALIGN(4)
-    {
-        . = ALIGN(4);
-        __ram2_init_text__ = LOADADDR(.ramdata);
-        __ram2_init__ = .;
-        /* hot rodata of ChibiOS */
-        EXCLUDE_FILE (*vectors.o *crt0.o *crt1.o) *libch.a:ch*.*(.rodata*)
-        *libch.a:ch*.*(.rodata*)
-        *libch.a:nvic.*(.rodata*)
-        *libch.a:bouncebuffer.*(.rodata*)
-        *libch.a:stm32_util.*(.rodata*)
-        *libch.a:ch32_dma.*(.rodata*)
-        *libch.a:memstreams.*(.rodata*)
-        *libch.a:malloc.*(.rodata*)
-        *libch.a:hrt.*(.rodata*)
-        EXCLUDE_FILE (*hal_lld.o) *libch.a:hal*.*(.rodata*)
-        /* a selection of performance critical functions driven CPUInfo results */
-        lib/lib*.a:Semaphores.*(.rodata*)
-        lib/lib*.a:AP_Math.*(.rodata*)
-        lib/lib*.a:vector3.*(.rodata*)
-        lib/lib*.a:matrix3.*(.rodata*)
-        *libm.a:*(.rodata*)
-        lib/lib*.a:AC_AttitudeControl*.*(.rodata*)
-        lib/lib*.a:AC_PID*.*(.rodata*)
-        /* fill up remaining DTCM with other hot functions, esp EKF */
-        lib/lib*.a:ModeFilter.*(.text* .rodata*)
-        lib/lib*.a:DerivativeFilter.*(.text* .rodata*)
-        lib/lib*.a:SlewLimiter.*(.text* .rodata*)
-        lib/lib*.a:AP_NavEKF3_core.*(.text* .rodata*)
-        lib/lib*.a:AP_NavEKF3_Outputs.*(.text* .rodata*)
-        lib/lib*.a:AP_NavEKF3_Measurements.*(.text* .rodata*)
-        lib/lib*.a:EKF*.*(.text* .rodata*)
-        /* flash ops in RAM so that both banks can be erased */
-        lib/lib*.a:flash.*(.text* .rodata*)
-        *(.ramdata*)
-        . = ALIGN(4);
-    } > dataram AT > default_flash
-
-    .ram2 (NOLOAD) : ALIGN(4)
-    {
-        . = ALIGN(4);
-        __ram2_clear__ = .;
-        . = ALIGN(4);
-        __ram2_noinit__ = .;
-        . = ALIGN(4);
-        __ram2_free__ = .;
-        . = ALIGN(4);
+        __dtcm_reserved_base__ = ORIGIN(dataram);
+        . = . + __dtcm_reserved__;
+        __dtcm_reserved_end__ = .;
     } > dataram
 
     .text : ALIGN(4) SUBALIGN(4)
     {
-        /* we want app_descriptor near the start of flash so a false
-           positive isn't found by the bootloader (eg. ROMFS) */
-        KEEP(*libch.a:vectors.o);
-        KEEP(*libch.a:crt0.o);
-        KEEP(*libch.a:crt1.o);
-        KEEP(*libch.a:board.o);
-        KEEP(*(.app_descriptor));
-        PROVIDE(__usb_debug_text_start = .);
-        *USB_Debug.cpp*.o(.text .text.*)
-        PROVIDE(__usb_debug_text_end = .);
+        . = ALIGN(4);
+        KEEP(*(SORT_NONE(.handle_reset)))
         *(.text)
         *(.text.*)
         *(.rodata)
         *(.rodata.*)
-        *(.glue_7t)
         *(.glue_7)
-        *(.gcc*)
+        *(.glue_7t)
+        *(.gnu.linkonce.t.*)
+        *(.srodata.cst16)
+        *(.srodata.cst8)
+        *(.srodata.cst4)
+        *(.srodata.cst2)
+        . = ALIGN(4);
+        __usb_debug_text_start = .;
+        *USB_Debug.cpp*.o(.text .text.*)
+        __usb_debug_text_end = .;
+        . = ALIGN(4);
     } > default_flash
-
-    .ARM.extab :
-    {
-        *(.ARM.extab* .gnu.linkonce.armextab.*)
-    } > default_flash
-
-    .ARM.exidx : {
-        __exidx_start = .;
-        *(.ARM.exidx* .gnu.linkonce.armexidx.*)
-        __exidx_end = .;
-     } > default_flash
 
     .eh_frame_hdr :
     {
@@ -284,140 +199,124 @@ SECTIONS
         *(.eh_frame)
     } > default_flash
 
-    .textalign : ONLY_IF_RO
+    .preinit_array :
     {
-        . = ALIGN(8);
+        PROVIDE_HIDDEN(__preinit_array_start = .);
+        KEEP(*(.preinit_array))
+        PROVIDE_HIDDEN(__preinit_array_end = .);
     } > default_flash
 
-    /* Legacy symbol, not used anywhere.*/
+    .init_array :
+    {
+        . = ALIGN(4);
+        __init_array_base__ = .;
+        __init_array_start = .;
+        KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
+        KEEP(*(SORT(.init_array)))
+        KEEP(*(EXCLUDE_FILE(*crtbegin.o *crtbegin?.o *crtend.o *crtend?.o) .ctors))
+        . = ALIGN(4);
+        __init_array_end = .;
+    } > default_flash
+
+    .fini_array :
+    {
+        . = ALIGN(4);
+        __fini_array_base__ = .;
+        __fini_array_start = .;
+        KEEP(*(SORT_BY_INIT_PRIORITY(.fini_array.*) SORT_BY_INIT_PRIORITY(.dtors.*)))
+        KEEP(*(SORT(.fini_array)))
+        KEEP(*(EXCLUDE_FILE(*crtbegin.o *crtbegin?.o *crtend.o *crtend?.o) .dtors))
+        . = ALIGN(4);
+        __fini_array_end = .;
+    } > default_flash
+
     . = ALIGN(4);
     PROVIDE(_etext = .);
+    PROVIDE(_eitcm = .);
 
-    /* Special section for exceptions stack.*/
-    .mstack :
-    {
-        . = ALIGN(16);
-        __main_stack_base__ = .;
-        . += __main_stack_size__;
-        . = ALIGN(16);
-        __main_stack_end__ = .;
-        PROVIDE(_eusrstack = .);
-        __main_stack_top__ = .;
-    } > MAIN_STACK_RAM
+    /* firmware CRC window for the crash dump */
+    __firmware_crc_start__ = LOADADDR(.fw_describer);
+    __firmware_crc_ext_start__ = 0;
+    __firmware_crc_ext_end__ = 0;
 
     /* Special section for process stack.*/
-    .pstack :
+    .pstack (NOLOAD) :
     {
+        __main_stack_base__ = .;
         __process_stack_base__ = .;
         __main_thread_stack_base__ = .;
         . += __process_stack_size__;
+        . += __main_stack_size__;
         . = ALIGN(16);
         __process_stack_end__ = .;
         __main_thread_stack_end__ = .;
+        __main_stack_end__ = .;
+        PROVIDE(_eusrstack = .);
+        __main_stack_top__ = .;
     } > PROCESS_STACK_RAM
 
+    /* RAM data and the vector table are folded in here so that
+       loaddata2vma() copies both into DTCM in one pass */
     .data : ALIGN(4)
     {
-        . = ALIGN(4);
-        PROVIDE(_textdata = LOADADDR(.data));
-        PROVIDE(_data = .);
-        __textdata_base__ = LOADADDR(.data);
+        PROVIDE(_data_vma = .);
         __data_base__ = .;
+        . = ALIGN(1024);
+        KEEP(*(.vector))
         *(.data)
         *(.data.*)
+        *(.gnu.linkonce.r.*)
+        *(.gnu.linkonce.d.*)
         *(.ramtext)
-        /* RISC-V small-data section handling */
-        *(.sdata)
-        *(.sdata.*)
+        *(.ramdata*)
         . = ALIGN(8);
         PROVIDE(__global_pointer$ = . + 0x800);
+        *(.sdata)
+        *(.sdata.*)
+        *(.sdata2.*)
+        *(.gnu.linkonce.s.*)
         *(.srodata.cst16)
         *(.srodata.cst8)
         *(.srodata.cst4)
         *(.srodata.cst2)
         *(.srodata .srodata.*)
-        /* WCH crt1.c conventions */
-        PROVIDE(_data_vma = .);
-        PROVIDE(_data_lma = LOADADDR(.data));
         . = ALIGN(4);
         PROVIDE(_edata = .);
         __data_end__ = .;
     } > DATA_RAM AT > default_flash
+    PROVIDE(_data_lma = LOADADDR(.data));
 
+    /* clearbss() zeroes _sbss.._ebss, so _sbss must be the first content */
     .bss (NOLOAD) : ALIGN(4)
     {
         . = ALIGN(4);
         __bss_base__ = .;
-        *(.bss)
-        *(.bss.*)
+        PROVIDE(_sbss = .);
         *(.sbss)
         *(.sbss.*)
+        *(.gnu.linkonce.sb.*)
+        *(.bss)
+        *(.bss.*)
+        *(.gnu.linkonce.b.*)
         *(.scommon)
         *(COMMON)
-        /* WCH crt1.c conventions */
-        PROVIDE(_sbss = .);
         . = ALIGN(4);
         __bss_end__ = .;
         PROVIDE(_ebss = .);
         PROVIDE(end = .);
     } > BSS_RAM
 
-    /* WCH crt0.S .load handling: not used when running from the QSPI
-       window, but the symbols must exist as an empty range */
-    .loadcodelalign :
-    {
-        . = ALIGN(4);
-        PROVIDE(_loadcode_lma = .);
-    } > default_flash
-
-    .loadcode :
-    {
-        . = ALIGN(4);
-        PROVIDE(_loadcode_vma_start = .);
-        *(.load)
-        . = ALIGN(4);
-        PROVIDE(_loadcode_vma_end = .);
-    } > default_flash
-
-    /* WCH crt1.c .highcode handling: no RAM copy needed under XIP,
-       empty ranges make the copy loops no-ops */
-    .highcodelalign :
-    {
-        . = ALIGN(4);
-        PROVIDE(_highcode_lma = .);
-    } > default_flash
-
-    .highcode :
-    {
-        . = ALIGN(4);
-        PROVIDE(_highcode_vma_start = .);
-        . = ALIGN(4);
-        PROVIDE(_highcode_vma_end = .);
-    } > default_flash
-
-    .highcodelalign1 :
-    {
-        . = ALIGN(4);
-        PROVIDE(_highcode_lma1 = .);
-    } > default_flash
-
-    .highcode1 :
-    {
-        . = ALIGN(4);
-        PROVIDE(_highcode_vma_start1 = .);
-        . = ALIGN(4);
-        PROVIDE(_highcode_vma_end1 = .);
-    } > default_flash
-
+    /* DMA capable buffers in the shared SRAM. Nothing in the tree uses
+       .ram0_init/.ram0/.ram0_clear today; __ram0_clear__..__ram0_noinit__
+       is the only range __init_ram_areas() zeroes (board.c). */
     .ram0_init : ALIGN(4)
     {
         . = ALIGN(4);
-        __ram0_init_text__ = LOADADDR(.ram0_init);
-        __ram0_init__ = .;
         *(.ram0_init)
         *(.ram0_init.*)
         . = ALIGN(4);
     } > ram0 AT > default_flash
+
     __firmware_crc_end__ = LOADADDR(.ram0_init) + SIZEOF(.ram0_init);
 
     .ram0 (NOLOAD) : ALIGN(4)
@@ -431,11 +330,10 @@ SECTIONS
         *(.ram0)
         *(.ram0.*)
         . = ALIGN(4);
-        __ram0_free__ = .;
     } > ram0
 
     /* The default heap uses the (statically) unused part of a RAM section.*/
-    .heap (NOLOAD) :
+    .heap (NOLOAD) : ALIGN(8)
     {
         . = ALIGN(8);
         __heap_base__ = .;
@@ -444,7 +342,7 @@ SECTIONS
     } > HEAP_RAM
 
     /* The crash log uses the unused part of a flash section.*/
-    .crash_log (NOLOAD) :
+    .crash_log (NOLOAD) : ALIGN(32)
     {
         . = ALIGN(32);
         __crash_log_base__ = .;
