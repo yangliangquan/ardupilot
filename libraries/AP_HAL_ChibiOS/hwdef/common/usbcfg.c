@@ -47,9 +47,24 @@ static cdc_linecoding_t linecoding = {
 /*
  * Endpoints to be used for USBD1.
  */
+#if defined(CH32H417)
+/*
+ * The CH32 OTG (WCH USBFS-style) endpoint hardware has a single
+ * direction lane per endpoint number (one MOD direction flag and one
+ * shared UEPn_DMA address register); the driver explicitly disables
+ * the opposite direction when arming either way. The CDC data
+ * interface must therefore use distinct endpoint numbers for IN and
+ * OUT - mirrors the WCH EVT DUAL demo (see
+ * modules/ChibiOS/demos/CH32/RT-CH32H417-DUAL/core0/usbcfg.c).
+ */
+#define USBD1_DATA_REQUEST_EP           2
+#define USBD1_DATA_AVAILABLE_EP         1
+#define USBD1_INTERRUPT_REQUEST_EP      3
+#else
 #define USBD1_DATA_REQUEST_EP           1
 #define USBD1_DATA_AVAILABLE_EP         1
 #define USBD1_INTERRUPT_REQUEST_EP      2
+#endif
 
 /*
  * USB Device Descriptor.
@@ -264,6 +279,70 @@ uint8_t get_usb_parity(uint16_t endpoint_id)
       return 0;
 }
 #endif
+#if defined(CH32H417)
+/**
+ * @brief   OUT-only EP1 (CDC bulk OUT, host->device) state.
+ */
+static USBOutEndpointState ep1outstate;
+
+/**
+ * @brief   EP1 initialization structure (OUT only).
+ */
+static const USBEndpointConfig ep1config = {
+  USB_EP_MODE_TYPE_BULK,
+  NULL,
+  NULL,
+  sduDataReceived,
+  0x0000,
+  0x0040,
+  NULL,
+  &ep1outstate,
+  2,
+  NULL
+};
+
+/**
+ * @brief   IN-only EP2 (CDC bulk IN, device->host) state.
+ */
+static USBInEndpointState ep2instate;
+
+/**
+ * @brief   EP2 initialization structure (IN only).
+ */
+static const USBEndpointConfig ep2config = {
+  USB_EP_MODE_TYPE_BULK,
+  NULL,
+  sduDataTransmitted,
+  NULL,
+  0x0040,
+  0x0000,
+  &ep2instate,
+  NULL,
+  2,
+  NULL
+};
+
+/**
+ * @brief   IN-only EP3 (CDC notification) state.
+ */
+static USBInEndpointState ep3instate;
+
+/**
+ * @brief   EP3 initialization structure (IN only).
+ */
+static const USBEndpointConfig ep3config = {
+  USB_EP_MODE_TYPE_INTR,
+  NULL,
+  sduInterruptTransmitted,
+  NULL,
+  0x0010,
+  0x0000,
+  &ep3instate,
+  NULL,
+  1,
+  NULL
+};
+#else
 /**
  * @brief   IN EP1 state.
  */
@@ -310,6 +389,7 @@ static const USBEndpointConfig ep2config = {
   1,
   NULL
 };
+#endif // CH32H417
 
 /*
  * Handles the USB driver global events.
@@ -326,8 +406,14 @@ static void usb_event(USBDriver *usbp, usbevent_t event) {
     /* Enables the endpoints specified into the configuration.
        Note, this callback is invoked from an ISR so I-Class functions
        must be used.*/
+#if defined(CH32H417)
+    usbInitEndpointI(usbp, USBD1_DATA_AVAILABLE_EP, &ep1config);
+    usbInitEndpointI(usbp, USBD1_DATA_REQUEST_EP, &ep2config);
+    usbInitEndpointI(usbp, USBD1_INTERRUPT_REQUEST_EP, &ep3config);
+#else
     usbInitEndpointI(usbp, USBD1_DATA_REQUEST_EP, &ep1config);
     usbInitEndpointI(usbp, USBD1_INTERRUPT_REQUEST_EP, &ep2config);
+#endif
 
     /* Resetting the state of the CDC subsystem.*/
     sduConfigureHookI(&SDU1);
