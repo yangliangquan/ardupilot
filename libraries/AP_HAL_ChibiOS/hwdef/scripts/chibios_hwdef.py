@@ -30,7 +30,10 @@ class ChibiOSHWDef(hwdef.HWDef):
     # output variables for each pin
     f4f7_vtypes = ['MODER', 'OTYPER', 'OSPEEDR', 'PUPDR', 'ODR', 'AFRL', 'AFRH']
     f1_vtypes = ['CRL', 'CRH', 'ODR']
-    af_labels = ['USART', 'UART', 'SPI', 'I2C', 'SDIO', 'SDMMC', 'OTG', 'JT', 'TIM', 'CAN', 'QUADSPI', 'OCTOSPI', 'ETH', 'MCO']
+    # CH32 uses F1-style CNF/MODE nibbles plus a separate AFIO mux table
+    # (one 4-bit alternate number per pin) written to AFIO->GPIOx_AFLR/AFHR
+    ch32_vtypes = ['CRL', 'CRH', 'ODR', 'AFLR', 'AFHR']
+    af_labels = ['USART', 'UART', 'SPI', 'I2C', 'SDIO', 'SDMMC', 'OTG', 'JT', 'TIM', 'CAN', 'QUADSPI', 'OCTOSPI', 'ETH', 'MCO', 'QSPI']
     # for the callers which only want to know whether a label names an
     # alternative function, not which one:
     af_label_prefixes = tuple(af_labels)
@@ -165,7 +168,9 @@ class ChibiOSHWDef(hwdef.HWDef):
         lib = self.get_mcu_lib(self.mcu_type)
         if hasattr(lib, 'pincount'):
             self.pincount = lib.pincount
-        if self.mcu_series.startswith("STM32F1") or self.mcu_series.startswith("CH32"):
+        if self.mcu_series.startswith("CH32"):
+            self.vtypes = self.ch32_vtypes
+        elif self.mcu_series.startswith("STM32F1") or self.mcu_series.startswith("CH32"):
             self.vtypes = self.f1_vtypes
         else:
             self.vtypes = self.f4f7_vtypes
@@ -305,7 +310,11 @@ class ChibiOSHWDef(hwdef.HWDef):
         def f1_pin_setup(self, mcu_type):
             f1_input_sigs = ['RX', 'MISO', 'CTS']
             f1_output_sigs = ['TX', 'MOSI', 'SCK', 'RTS', 'CH1', 'CH2', 'CH3', 'CH4',
-                              'SDIO_CK', 'SDIO_CMD', 'SDIO_D0', 'SDIO_D1', 'SDIO_D2', 'SDIO_D3']
+                              'SDIO_CK', 'SDIO_CMD', 'SDIO_D0', 'SDIO_D1', 'SDIO_D2', 'SDIO_D3',
+                              # CH32 WCH-style QSPI/WSPI signals (SIO0..3 are
+                              # half-duplex I/O data pins)
+                              'SCSN', 'SCSXN', 'SIO0', 'SIO1', 'SIO2', 'SIO3',
+                              'SIOX0', 'SIOX1', 'SIOX2', 'SIOX3']
             matched = False
             for label in self.af_labels:
                 if self.label.startswith(label):
@@ -607,6 +616,25 @@ class ChibiOSHWDef(hwdef.HWDef):
             if self.pin >= 8:
                 return None
             return self.get_CR()
+
+        def get_AFIO_CH32(self):
+            '''return the AFIO AFLR/AFHR nibble for a pin, or None if the
+            pin has no alternate function assigned'''
+            if self.mcu_series.startswith("CH32") and self.af is not None:
+                return "PIN_AFIO_AF(%uU, %uU)" % (self.pin, self.af)
+            return None
+
+        def get_AFLR(self):
+            '''return AFIO nibbles for pins 0..7'''
+            if self.pin >= 8:
+                return None
+            return self.get_AFIO_CH32()
+
+        def get_AFHR(self):
+            '''return AFIO nibbles for pins 8..15'''
+            if self.pin < 8:
+                return None
+            return self.get_AFIO_CH32()
 
         def pal_modeline(self):
             '''return a mode line suitable for palSetModeLine()'''
@@ -1516,11 +1544,11 @@ MEMORY
     flash : org = 0x%08x, len = %uK
     ram_code : org = 0x200A0000, len = 128K
     ram : org = 0x200C0800, len = %u
-    ram_load : org = 0x200C0400, len = 256
+    ram_load : org = 0x200C0400, len = 1K
 }
 
 INCLUDE common.ld
-''' % (boot_flash_base, flash_length, 256*1024 - 1024))
+''' % (boot_flash_base, flash_length, 256*1024 - 2048))
             else:
                 f.write('''/* generated ldscript.ld */
 MEMORY
@@ -2724,6 +2752,8 @@ Please run: Tools/scripts/build_bootloaders.py %s
 #define PIN_PULLUP(n)                 (1U << (((n) & 15)))
 #define PIN_PULLDOWN(n)               (0U << (((n) & 15)))
 #define PIN_UNDEFINED(n)                PIN_INPUT_PUD(n)
+/* AFIO alternate number per pin, in AFIO->GPIOx_AFLR / AFIO->GPIOx_AFHR */
+#define PIN_AFIO_AF(n, v)             ((v) << (((n) % 8U) * 4U))
 ''')
         else:
             f.write('''
