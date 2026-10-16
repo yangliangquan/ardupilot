@@ -169,7 +169,6 @@ static void sys_tick_handler(virtual_timer_t* vt, void *ctx)
 {
     chSysLockFromISR();
     chVTSetI(&systick_vt, chTimeMS2I(1), sys_tick_handler, nullptr);
-    chSysUnlockFromISR();
     uint8_t i;
     for (i = 0; i < NTIMERS; i++)
         if (timer[i] > 0) {
@@ -185,6 +184,19 @@ static void sys_tick_handler(virtual_timer_t* vt, void *ctx)
         led_toggle(LED_BOOTLOADER);
         timer[TIMER_LED] = 1000;
     }
+
+#if defined(CH32H417)
+    /* the WCH USBFS controller has no SOF interrupt, so the SDU
+       partial-buffer flush that upstream drives off the SOF hook
+       must be emulated with a 1ms timer (as the WCH EVT demo does).
+       Without this, short writes (e.g. the 2-byte INSYNC replies)
+       sit in a half-filled output buffer forever and the host never
+       sees a response. */
+    extern SerialUSBDriver SDU1;
+    sduSOFHookI(&SDU1);
+#endif
+
+    chSysUnlockFromISR();
 }
 
 static void delay(unsigned msec)
@@ -237,6 +249,53 @@ do_jump(uint32_t stacktop, uint32_t entrypoint)
         "bx	%1	\n"
         : : "r"(stacktop), "r"(entrypoint) :);
 }
+
+#if defined(CH32H417)
+/*
+  quiesce everything the bootloader brought up before handing over to the
+  app running from the QSPI2 XIP window
+
+  The clock tree is left as the bootloader configured it, the app's hal_lld
+  programs its own tree. The QSPI2 controller and the GPIO banks carrying its
+  pins must keep running so the XIP window stays mapped for the jump, the
+  internal CodeFlash controller (FMC) must keep running because this code is
+  executing from it and the backup domain holds the RTC flag the
+  CAN-bootloader flow relies on so it is excluded from any reset as well.
+  Everything else is clock-gated and reset so the app cannot take a pending
+  interrupt from the bootloader session before it has configured its own
+  vector table.
+ */
+static void quiesce_peripherals(void)
+{
+    // GPIO banks with QSPI2 pins (see hwdef-bl.dat) plus AFIO
+    const uint32_t hb2_keep = RCC_AFIOEN | RCC_IOPBEN | RCC_IOPCEN |
+                              RCC_IOPEEN | RCC_IOPFEN;
+    // QSPI2 keeps the XIP window alive for the app image
+    const uint32_t hb1_keep = RCC_QSPI2EN;
+    // internal CodeFlash controller, this code is executing from it
+    const uint32_t hb_keep = RCC_FMCEN;
+
+    // global interrupts off before we touch the peripheral clocks
+    port_disable();
+
+    disableHB2(~hb2_keep);
+    disableHB1(~hb1_keep);
+    disableHB(~hb_keep);
+
+    // pulse the reset lines so every quiesced peripheral ends up in
+    // idle state with no stray interrupt in flight
+    resetHB2(~hb2_keep);
+    resetHB1(~(hb1_keep | RCC_BKPRST | RCC_PWRRST));
+    resetHB(~RCC_FMCRST);
+
+    // clear the interrupt controller so the jump target cannot take any
+    // interrupt before it has set up its own vector table
+    for (uint8_t i = 0; i < 8; i++) {
+        PFIC->IRER[i] = 0xFFFFFFFFU;
+        PFIC->IPRR[i] = 0xFFFFFFFFU;
+    }
+}
+#endif // CH32H417
 
 #ifndef APP_START_ADDRESS
 #define APP_START_ADDRESS (FLASH_LOAD_ADDRESS + (FLASH_BOOTLOADER_LOAD_KB + APP_START_OFFSET_KB)*1024U)
@@ -314,10 +373,12 @@ jump_to_app()
 
     // resetting the clocks is needed for loading NuttX
 #if defined(CH32H417)
-    /* the app runs from the QSPI XIP window with the clock tree owned
-       by the bootloader: don't gate peripheral clocks; the app's
-       hal_lld will repeat the QSPI setup itself. Just drop SPORT? no —
-       peripherals are left as-is and port_disable() protects us. */
+    /*
+      quiesce everything the bootloader brought up except what must survive
+      the jump: QSPI2 (the XIP window serving the app image) and the GPIO
+      banks feeding it. See quiesce_peripherals() above.
+     */
+    quiesce_peripherals();
 #elif defined(STM32H7)
     rccDisableAPB1L(~0);
     rccDisableAPB1H(~0);
@@ -330,10 +391,6 @@ jump_to_app()
 #elif defined(STM32L4PLUS)
     rccDisableAPB1R1(~0);
     rccDisableAPB1R2(~0);
-#elif defined(CH32H417)
-    /* the app runs from the QSPI XIP window: the clock tree was set up
-       by the firmware and must stay alive for the jump (leave the
-       peripheral clocks alone). */
 #else
     rccDisableAPB1(~0);
 #endif
@@ -361,10 +418,12 @@ jump_to_app()
         const uint32_t entry = app_base[1];
         const uint32_t stack = app_base[0];
         __asm__ volatile (
+            "li t0, 0x88\n"
+            "csrc mstatus, t0\n"
             "csrw mscratch, %0\n"
             "csrw mepc, %1\n"
             "mret\n"
-            : : "r"(stack), "r"(entry));
+            : : "r"(stack), "r"(entry) : "t0");
     }
     while (true) {}
 #else
