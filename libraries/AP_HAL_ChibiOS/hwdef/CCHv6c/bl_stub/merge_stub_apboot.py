@@ -38,7 +38,7 @@ def main():
     if v5f_offset + len(boot_bin) > codeflash_size:
         sys.exit('bootloader exceeds the CodeFlash window')
 
-    image = bytearray(b'\xff' * codeflash_size)
+    image = bytearray(b'\xff' * (v5f_offset + len(boot_bin)))
     image[0:len(stub_bin)] = stub_bin
     image[v5f_offset:v5f_offset + len(boot_bin)] = boot_bin
 

@@ -51,8 +51,8 @@
 #define GPIO_OUTDR_OFFSET       0x0C
 #define GPIO_BSHR_OFFSET        0x10
 #define PIN_10_CFG              (0x3 << (4 * 2)) /* CFGHR nibble2: OUT_PP 50MHz */
-#define PD10_BSHR_SET           0x0A             /* BSHR SET[15:0] = 10 */
-#define PD10_BSHR_CLR           (0x0A << 16)     /* BSHR CLR[31:16] = 10 */
+#define PD10_BSHR_SET           0x400             /* BSHR SET[15:0] = 10 */
+#define PD10_BSHR_CLR           (0x400 << 16)     /* BSHR CLR[31:16] = 10 */
 
 /* PFIC release registers (CH32H417RM 4.7.5) */
 #define PFIC_WAKEIP1            0xE000E724
@@ -62,7 +62,7 @@
 #define V5F_BOOT_ADDR           0x00040000
 
 /* roughly 0.4s per half-blink at the HSI reset clock */
-#define BLINK_HALF              1000000
+#define BLINK_HALF              100000
 
 .section .vectors,"ax",@progbits
     .global _start
@@ -101,7 +101,7 @@ blink_half_off:
     bnez    a0, 1b
     sw      s1, GPIO_BSHR_OFFSET(t0)
     addi    s0, s0, -1
-    bnez    s0, blink_half_off
+    bnez    s0, blink_half_on
 
     /* ---- release the V5F core into the bootloader ---- */
 
