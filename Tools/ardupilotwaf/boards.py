@@ -725,7 +725,29 @@ Board = BoardMeta('Board', Board.__bases__, dict(Board.__dict__))
 
 def add_dynamic_boards_chibios():
     '''add boards based on existence of hwdef.dat in subdirectories for ChibiOS'''
-    add_dynamic_boards_from_hwdef_dir(chibios, 'libraries/AP_HAL_ChibiOS/hwdef')
+    add_dynamic_boards_from_hwdef_dir(chibios, 'libraries/AP_HAL_ChibiOS/hwdef',
+                                     riscv_base=chibios_riscv)
+
+
+def _is_riscv_hwdef(hwdef, hwdef_bl):
+    '''Return True when the board's MCU description declares ARCH=riscv.
+
+    Only the first MCU line is consulted; hwdef/scripts is already on
+    sys.path, so the MCU module can be imported by name.
+    '''
+    for path in (hwdef, hwdef_bl):
+        if not os.path.exists(path):
+            continue
+        with open(path, 'r', encoding='utf8') as f:
+            for line in f:
+                a = line.split()
+                if len(a) >= 3 and a[0] == 'MCU':
+                    try:
+                        lib = __import__(a[2])
+                        return getattr(lib, 'mcu', {}).get('ARCH') == 'riscv'
+                    except (ImportError, AttributeError):
+                        return False
+    return False
 
 def add_dynamic_boards_linux():
     '''add boards based on existence of hwdef.dat in subdirectories for '''
@@ -739,7 +761,7 @@ def add_dynamic_boards_sitl():
     '''add boards based on existence of hwdef.dat in subdirectories for '''
     add_dynamic_boards_from_hwdef_dir(SITLBoard, 'libraries/AP_HAL_SITL/hwdef')
 
-def add_dynamic_boards_from_hwdef_dir(base_type, hwdef_dir):
+def add_dynamic_boards_from_hwdef_dir(base_type, hwdef_dir, riscv_base=None):
     '''add boards based on existence of hwdef.dat in subdirectory'''
     dirname, dirlist, filenames = next(os.walk(hwdef_dir))
     for d in dirlist:
@@ -748,7 +770,10 @@ def add_dynamic_boards_from_hwdef_dir(base_type, hwdef_dir):
         hwdef = os.path.join(dirname, d, 'hwdef.dat')
         hwdef_bl = os.path.join(dirname, d, 'hwdef-bl.dat')
         if os.path.exists(hwdef) or os.path.exists(hwdef_bl):
-            newclass = type(d, (base_type,), {'name': d})
+            board_base = base_type
+            if riscv_base is not None and _is_riscv_hwdef(hwdef, hwdef_bl):
+                board_base = riscv_base
+            newclass = type(d, (board_base,), {'name': d})
 
 def add_dynamic_boards_esp32():
     '''add boards based on existence of hwdef.dat in subdirectories for ESP32'''
@@ -1478,6 +1503,134 @@ class chibios(Board):
 
     def get_name(self):
         return self.name
+
+class chibios_riscv(chibios):
+    '''ChibiOS boards built with the WCH RISC-V cross toolchain.
+
+    The stock chibios class hardcodes arm-none-eabi plus Cortex-M flags
+    (-mthumb, --specs=..., -D__USE_CMSIS, ARMCMx linker paths).  Those are
+    meaningless for the QingKe V5F core, so this subclass keeps the waf
+    integration and the generic Board flags but substitutes the RISC-V
+    toolchain, compiler flags and linker paths.
+    '''
+    abstract = True
+    toolchain = 'riscv-wch-elf'
+
+    def configure_env(self, cfg, env):
+        if hasattr(self, 'hwdef'):
+            cfg.env.HWDEF = self.hwdef
+        # Deliberately skip chibios.configure_env() (ARM-only flags) and use
+        # the generic Board configuration instead.
+        Board.configure_env(self, cfg, env)
+
+        cfg.load('chibios')
+        env.BOARD = self.name
+        env.BOARD_CLASS = "ChibiOS"
+
+        env.DEFINES.update(
+            CONFIG_HAL_BOARD = 'HAL_BOARD_CHIBIOS',
+            HAVE_STD_NULLPTR_T = 0,
+        )
+        env.AP_LIBRARIES += ['AP_HAL_ChibiOS']
+        env.CHIBIOS_BOARD_NAME = 'HAL_BOARD_NAME="%s"' % self.name
+        env.HAL_MAX_STACK_FRAME_SIZE = 'HAL_MAX_STACK_FRAME_SIZE=%d' % 1300
+
+        env.CFLAGS += cfg.env.CPU_FLAGS + [
+            '-Wlogical-op',
+            '-Wframe-larger-than=1300',
+            '-Wno-attributes',
+            '-fno-exceptions',
+            '-Wall',
+            '-Wextra',
+            '-Wno-sign-compare',
+            '-Wfloat-equal',
+            '-Wpointer-arith',
+            '-Wmissing-declarations',
+            '-Wno-unused-parameter',
+            '-Werror=array-bounds',
+            '-Wfatal-errors',
+            '-Werror=uninitialized',
+            '-Werror=init-self',
+            '-Werror=unused-but-set-variable',
+            '-Wno-missing-field-initializers',
+            '-Wno-trigraphs',
+            '-fno-strict-aliasing',
+            '-fomit-frame-pointer',
+            '-falign-functions=16',
+            '-ffunction-sections',
+            '-fdata-sections',
+            '-fno-strength-reduce',
+            '-fno-builtin-printf',
+            '-fno-builtin-fprintf',
+            '-fno-builtin-vprintf',
+            '-fno-builtin-vfprintf',
+            '-fno-builtin-puts',
+            '-fno-math-errno',
+            # adapt-417 crt0.S defaults to copying the whole .text into
+            # ITCM.  The flight image is XIP in QSPI2 flash, so only the
+            # opted-in .itcm/.sram sections are relocated by crt1.
+            '-DCRT0_INIT_TEXT=0',
+            '-DCRT1_AREAS_NUMBER=3',
+            '-Werror=deprecated-declarations',
+            '-DNDEBUG=1'
+        ]
+        if not cfg.options.Werror:
+            env.CFLAGS += [
+                '-Wno-error=double-promotion',
+                '-Wno-error=missing-declarations',
+                '-Wno-error=float-equal',
+                '-Wno-error=cpp',
+            ]
+
+        env.CXXFLAGS += env.CFLAGS + [
+            '-fno-rtti',
+            '-fno-threadsafe-statics',
+        ]
+        env.CFLAGS += ['-std=c11']
+
+        bldnode = cfg.bldnode.make_node(self.name)
+        env.BUILDROOT = bldnode.make_node('').abspath()
+
+        env.LINKFLAGS = cfg.env.CPU_FLAGS + [
+            '-fomit-frame-pointer',
+            '-falign-functions=16',
+            '-ffunction-sections',
+            '-fdata-sections',
+            '-u_port_lock',
+            '-u_port_unlock',
+            '-u_exit',
+            '-u_kill',
+            '-u_getpid',
+            '-u_errno',
+            '-uchThdExit',
+            '-fno-common',
+            '-nostartfiles',
+            '--specs=nano.specs',
+            '--specs=nosys.specs',
+            '-L%s' % env.BUILDROOT,
+            '-L%s' % cfg.srcnode.make_node('modules/ChibiOS/os/common/startup/RISCV-ECLIC/compilers/GCC/ld/').abspath(),
+            '-L%s' % cfg.srcnode.make_node('libraries/AP_HAL_ChibiOS/hwdef/common/').abspath(),
+            '-Wl,-Map,Linker.map,--cref,--gc-sections,--no-warn-mismatch,--script=ldscript.ld,--defsym=__process_stack_size__=%s,--defsym=__main_stack_size__=%s' % (cfg.env.PROCESS_STACK, cfg.env.MAIN_STACK)
+        ]
+
+        if cfg.env.DEBUG:
+            env.CFLAGS += ['-gdwarf-4', '-g3']
+            env.LINKFLAGS += ['-gdwarf-4', '-g3']
+        if cfg.env.ENABLE_ASSERTS:
+            env.CFLAGS += ['-DHAL_CHIBIOS_ENABLE_ASSERTS']
+            env.CXXFLAGS += ['-DHAL_CHIBIOS_ENABLE_ASSERTS']
+        if cfg.options.disable_watchdog:
+            env.CFLAGS += ['-DDISABLE_WATCHDOG']
+            env.CXXFLAGS += ['-DDISABLE_WATCHDOG']
+
+        # generate_bin splits the ELF into intf.bin/extf.bin by section
+        # address.  On this board the application is entirely in the QSPI2
+        # XIP window, so intf.bin ends up empty and extf.bin is the image.
+        env.EXTF_MEMORY_START = '0x70000000'
+        env.EXTF_MEMORY_END = '0x70FFFFFF'
+        env.INTF_MEMORY_START = '0x00000000'
+        env.INTF_MEMORY_END = '0x00FFFFFF'
+
 
 class LinuxBoard(Board):
     '''an abstract base class for Linux boards to inherit from'''

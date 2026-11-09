@@ -166,6 +166,14 @@ class generate_bin(Task.Task):
     EXTF_MEMORY_END  = 0x90FFFFFF
     INTF_MEMORY_START = 0x08000000
     INTF_MEMORY_END = 0x08FFFFFF
+    def _mem_range(self, key, default):
+        '''Boards may override the internal/external flash windows through
+        env (needed e.g. by the CH32H417 QSPI2 XIP window at 0x70000000).
+        Falling back to the class defaults keeps every STM32 board intact.'''
+        raw = self.env.get_flat(key)
+        if not raw:
+            return default
+        return int(raw, 0)
     def keyword(self):
         return "Generating"
     def run(self):
@@ -183,6 +191,10 @@ class generate_bin(Task.Task):
 
     '''list sections and split into two binaries based on section's location in internal, external or in ram'''
     def split_sections(self):
+        extf_start = self._mem_range('EXTF_MEMORY_START', self.EXTF_MEMORY_START)
+        extf_end   = self._mem_range('EXTF_MEMORY_END',   self.EXTF_MEMORY_END)
+        intf_start = self._mem_range('INTF_MEMORY_START', self.INTF_MEMORY_START)
+        intf_end   = self._mem_range('INTF_MEMORY_END',   self.INTF_MEMORY_END)
         # get a list of sections
         cmd = "'{}' -A -x {}".format(self.env.get_flat('SIZE'), self.inputs[0].relpath())
         out = self.generator.bld.cmd_and_log(cmd, quiet=Context.BOTH, cwd=self.env.get_flat('BUILDROOT'))
@@ -202,12 +214,12 @@ class generate_bin(Task.Task):
                     addr = int(section_line[2], 0)
             except ValueError:
                 continue
-            if (addr >= self.EXTF_MEMORY_START) and (addr <= self.EXTF_MEMORY_END):
+            if (addr >= extf_start) and (addr <= extf_end):
                 extf_sections.append("--only-section=%s" % section_line[0])
                 if section_line[0] == '.text':
                     is_text_in_extf = True
                     found_text_section = True
-            elif (addr >= self.INTF_MEMORY_START) and (addr <= self.INTF_MEMORY_END):
+            elif (addr >= intf_start) and (addr <= intf_end):
                 intf_sections.append("--only-section=%s" % section_line[0])
                 if section_line[0] == '.text':
                     is_text_in_extf = False
@@ -565,8 +577,13 @@ def setup_optimization(env):
 
 def configure(cfg):
     cfg.find_program('make', var='MAKE')
-    #cfg.objcopy = cfg.find_program('%s-%s'%(cfg.env.TOOLCHAIN,'objcopy'), var='OBJCOPY', mandatory=True)
-    cfg.find_program('arm-none-eabi-objcopy', var='OBJCOPY')
+    # Use the objcopy that matches the selected toolchain.  STM32 boards
+    # resolve to arm-none-eabi-objcopy exactly as before; RISC-V boards
+    # (e.g. CH32H417) resolve to riscv-wch-elf-objcopy.
+    if cfg.env.TOOLCHAIN == 'native':
+        cfg.find_program('objcopy', var='OBJCOPY')
+    else:
+        cfg.find_program('%s-objcopy' % cfg.env.TOOLCHAIN, var='OBJCOPY')
     env = cfg.env
 
     # Flash and FATFS use the same crash dump in a mutually exclusive way.

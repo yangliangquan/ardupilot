@@ -37,6 +37,12 @@
 // include generated config
 #include "hwdef.h"
 
+// The CH32H417 RISC-V port has its own register-level configuration; none
+// of the STM32 blocks below apply to it.
+#if defined(CH32H417)
+#include "ch32h417_mcuconf.h"
+#else
+
 #ifdef HAL_CHIBIOS_ENABLE_ASSERTS
 #define STM32_DMA_ERROR_HOOK(devp) osalSysHalt("DMA failure")
 #else
@@ -76,3 +82,5 @@
 #ifndef STM32_SDC_USE_SDMMC2
 #define STM32_SDC_USE_SDMMC2                FALSE
 #endif
+
+#endif // CH32H417

@@ -18,6 +18,7 @@
 #include "mcu_h7.h"
 #include "mcu_g4.h"
 #include "mcu_l4.h"
+#include "mcu_ch32.h"
 
 // optional uprintf() code for debug
 // #define BOOTLOADER_DEBUG SD1
@@ -241,9 +242,17 @@ bool flash_write_buffer(uint32_t address, const uint32_t *v, uint8_t nwords)
     return true;
 }
 
+#if defined(CH32H417)
+// The QingKe V5F has no STM32-style DBGMCU->IDCODE at DBGMCU_BASE.
+// Use a synthetic id whose low 12 bits match the CH32H417 table entry.
+#define BL_MCU_IDCODE 0x04170417UL
+#else
+#define BL_MCU_IDCODE (*(uint32_t *)DBGMCU_BASE)
+#endif
+
 uint32_t get_mcu_id(void)
 {
-    return *(uint32_t *)DBGMCU_BASE;
+    return BL_MCU_IDCODE;
 }
 
 #define REVID_MASK	0xFFFF0000
@@ -251,7 +260,7 @@ uint32_t get_mcu_id(void)
 
 uint32_t get_mcu_desc(uint32_t max, uint8_t *revstr)
 {
-    uint32_t idcode = (*(uint32_t *)DBGMCU_BASE);
+    uint32_t idcode = BL_MCU_IDCODE;
     int32_t mcuid = idcode & DEVID_MASK;
     uint16_t revid = ((idcode & REVID_MASK) >> 16);
 

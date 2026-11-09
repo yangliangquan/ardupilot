@@ -1148,7 +1148,12 @@ class ChibiOSHWDef(hwdef.HWDef):
         flash_reserve_start = self.get_config(
             'FLASH_RESERVE_START_KB', default=16, type=int)
         f.write('\n// location of loaded firmware\n')
-        f.write('#define FLASH_LOAD_ADDRESS 0x%08x\n' % (0x08000000 + flash_reserve_start*1024))
+        # CH32H417 internal CodeFlash is mapped at 0x00000000 (V5F window
+        # starts at 0x00010000), not the Cortex-M 0x08000000 alias.
+        int_flash_base = self.get_mcu_config('FLASH_BASE', False)
+        if int_flash_base is None:
+            int_flash_base = 0x08000000
+        f.write('#define FLASH_LOAD_ADDRESS 0x%08x\n' % (int_flash_base + flash_reserve_start*1024))
         # can be no persistent parameters if no space allocated for them
         if not self.is_bootloader_fw() and flash_reserve_start == 0:
             f.write('#define HAL_ENABLE_SAVE_PERSISTENT_PARAMS 0\n')
@@ -1159,7 +1164,18 @@ class ChibiOSHWDef(hwdef.HWDef):
 
         self.env_vars['EXT_FLASH_SIZE_MB'] = self.get_config('EXT_FLASH_SIZE_MB', default=0, type=int)
         self.env_vars['INT_FLASH_PRIMARY'] = self.get_config('INT_FLASH_PRIMARY', default=False, type=bool)
-        if self.env_vars['EXT_FLASH_SIZE_MB'] and not self.is_bootloader_fw() and not self.env_vars['INT_FLASH_PRIMARY']:
+        is_riscv = self.get_mcu_config('ARCH', False) == 'riscv'
+        if is_riscv:
+            # adapt-417 crt1.c relocates three RAM areas (DTCM, ITCM,
+            # shared SRAM).  CRT0_AREAS_NUMBER is an ARM-only ChibiOS
+            # concept and must not be emitted for the RISC-V port.
+            f.write('#define CRT1_AREAS_NUMBER 3\n')
+            f.write('#define __FASTRAMFUNC__ __attribute__ ((__section__(".fastramfunc")))\n')
+            f.write('#define __RAMFUNC__ __attribute__ ((__section__(".ramfunc")))\n')
+            f.write('#define __ITCMFUNC__ __attribute__ ((__section__(".itcm")))\n')
+            f.write('#define __SRAMFUNC__ __attribute__ ((__section__(".sram")))\n')
+            f.write('#define PORT_IRQ_ATTRIBUTES __FASTRAMFUNC__\n')
+        elif self.env_vars['EXT_FLASH_SIZE_MB'] and not self.is_bootloader_fw() and not self.env_vars['INT_FLASH_PRIMARY']:
             f.write('#define CRT0_AREAS_NUMBER 4\n')
             f.write('#define __FASTRAMFUNC__ __attribute__ ((__section__(".fastramfunc")))\n')
             f.write('#define __RAMFUNC__ __attribute__ ((__section__(".ramfunc")))\n')
@@ -1195,7 +1211,12 @@ class ChibiOSHWDef(hwdef.HWDef):
         if self.is_bootloader_fw():
             if self.env_vars['EXT_FLASH_SIZE_MB'] and not self.env_vars['INT_FLASH_PRIMARY']:
                 f.write('\n// location of loaded firmware in external flash\n')
-                f.write('#define APP_START_ADDRESS 0x%08x\n' % (0x90000000 + self.get_config(
+                # CH32H417 external NOR is on QSPI2, XIP at 0x70000000.
+                # STM32 boards keep the historical 0x90000000 default.
+                ext_flash_base = self.get_mcu_config('EXT_FLASH_BASE', False)
+                if ext_flash_base is None:
+                    ext_flash_base = 0x90000000
+                f.write('#define APP_START_ADDRESS 0x%08x\n' % (ext_flash_base + self.get_config(
                     'EXT_FLASH_RESERVE_START_KB', default=0, type=int)*1024))
                 f.write('#define BOOT_FROM_EXT_FLASH 1\n')
             f.write('#define FLASH_BOOTLOADER_LOAD_KB %u\n' % self.get_config('FLASH_BOOTLOADER_LOAD_KB', type=int))
@@ -1396,6 +1417,8 @@ class ChibiOSHWDef(hwdef.HWDef):
 
     def write_ldscript(self, fname):
         '''write ldscript.ld for this board'''
+        if self.get_mcu_config('ARCH', False) == 'riscv':
+            return self.write_ch32_ldscript(fname)
         flash_size = self.get_config('FLASH_USE_MAX_KB', type=int, default=0)
         if flash_size == 0:
             flash_size = self.get_config('FLASH_SIZE_KB', type=int)
@@ -1433,8 +1456,14 @@ class ChibiOSHWDef(hwdef.HWDef):
         ram_map = self.get_ram_map()
         instruction_ram = self.get_mcu_config('INSTRUCTION_RAM', False)
 
-        flash_base = 0x08000000 + flash_reserve_start * 1024
-        ext_flash_base = 0x90000000 + ext_flash_reserve_start * 1024
+        flash_base_cfg = self.get_mcu_config('FLASH_BASE', False)
+        if flash_base_cfg is None:
+            flash_base_cfg = 0x08000000
+        flash_base = flash_base_cfg + flash_reserve_start * 1024
+        ext_flash_base_cfg = self.get_mcu_config('EXT_FLASH_BASE', False)
+        if ext_flash_base_cfg is None:
+            ext_flash_base_cfg = 0x90000000
+        ext_flash_base = ext_flash_base_cfg + ext_flash_reserve_start * 1024
         if instruction_ram is not None:
             instruction_ram_base = instruction_ram[0]
             instruction_ram_length = instruction_ram[1]
@@ -1517,11 +1546,76 @@ INCLUDE common.ld
 ''' % (ext_flash_base, ext_flash_length, instruction_ram_base, instruction_ram_length, ram0_start, ram0_len, ram1_start, ram1_len, ram2_start, ram2_len))  # noqa
         f.close()
 
+    def write_ch32_ldscript(self, fname):
+        '''Generate ldscript.ld for the CH32H417 RISC-V port.
+
+        The flight image executes in place from the external QSPI2 XIP
+        window while the bootloader executes from the internal CodeFlash.
+        Both use the same common_ch32.ld section rules; only the MEMORY
+        block and (for the bootloader) a REGION_ALIAS differ.
+        '''
+        mem = self.get_mcu_config('CH32_MEMORY', True)
+        itcm_base, itcm_len = mem['itcm']
+        dtcm_base, dtcm_len = mem['dtcm']
+        sram_base, sram_len = mem['sram']
+
+        ext_flash_base = self.get_mcu_config('EXT_FLASH_BASE', True)
+        ext_flash_reserve_start = self.get_config('EXT_FLASH_RESERVE_START_KB', default=0, type=int)
+        ext_flash_reserve_end = self.get_config('EXT_FLASH_RESERVE_END_KB', default=0, type=int)
+        ext_flash_len_kb = (self.get_config('EXT_FLASH_SIZE_MB', default=0, type=int) * 1024
+                            - ext_flash_reserve_start - ext_flash_reserve_end)
+
+        int_flash_base = self.get_mcu_config('FLASH_BASE', True)
+        boot_flash_len_kb = self.get_mcu_config('FLASH_BOOTLOADER_MAX_KB', False)
+        if boot_flash_len_kb is None:
+            boot_flash_len_kb = self.get_config('FLASH_BOOTLOADER_LOAD_KB', type=int)
+
+        self.env_vars['EXT_FLASH_RESERVE_START_KB'] = str(ext_flash_reserve_start)
+        self.env_vars['FLASH_RESERVE_START_KB'] = str(self.get_config(
+            'FLASH_RESERVE_START_KB', default=0, type=int))
+        self.env_vars['HAS_EXTERNAL_FLASH_SECTIONS'] = 0 if self.is_bootloader_fw() else 1
+        self.env_vars['FLASH_TOTAL'] = ext_flash_len_kb * 1024
+
+        self.progress("Generating ldscript.ld (CH32H417 RISC-V)")
+        with open(fname, 'w') as f:
+            if self.is_bootloader_fw():
+                f.write('''/* generated ldscript.ld - CH32H417 internal-flash bootloader */
+MEMORY
+{
+    flash    (rx)  : org = 0x%08x, len = %uK
+    instram  (rwx) : org = 0x%08x, len = %u
+    flashram (rwx) : org = 0x%08x, len = %u
+    ram0     (wx)  : org = 0x%08x, len = %u
+}
+
+/* common_ch32.ld targets default_flash for the XIP image; the bootloader
+   executes from the internal CodeFlash instead. */
+REGION_ALIAS("default_flash", flash);
+
+INCLUDE common.ld
+''' % (int_flash_base, boot_flash_len_kb,
+       itcm_base, itcm_len, sram_base, sram_len, dtcm_base, dtcm_len))
+            else:
+                f.write('''/* generated ldscript.ld - CH32H417 external QSPI2 XIP */
+MEMORY
+{
+    default_flash (rx)  : org = 0x%08x, len = %uK
+    instram       (rwx) : org = 0x%08x, len = %u
+    flashram      (rwx) : org = 0x%08x, len = %u
+    ram0          (wx)  : org = 0x%08x, len = %u
+}
+
+INCLUDE common.ld
+''' % (ext_flash_base + ext_flash_reserve_start * 1024, ext_flash_len_kb,
+       itcm_base, itcm_len, sram_base, sram_len, dtcm_base, dtcm_len))
+
     def copy_common_linkerscript(self, outpath):
         dirpath = os.path.dirname(os.path.realpath(__file__))
 
         if self.is_bootloader_fw():
-            linker = 'common.ld'
+            linker = self.get_mcu_config('LINKER_CONFIG_BOOTLOADER', False)
+            if linker is None:
+                linker = 'common.ld'
         else:
             linker = self.get_mcu_config('LINKER_CONFIG')
         if linker is None:
