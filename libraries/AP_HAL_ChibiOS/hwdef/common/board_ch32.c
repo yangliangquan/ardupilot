@@ -75,9 +75,13 @@ static void ch32_gpio_init(void)
         const ch32_gpio_port_t *p = &ch32_gpio_ports[port_i];
         unsigned pin;
 
-        /* Identical nibble layout: AFRL/AFRH -> GPIOx_AFLR/AFHR. */
+        /* Identical nibble layout: AFRL/AFRH -> GPIOx_AFLR/AFHR.
+           The PAL driver rewrites the nibble of each alternate-function
+           pin through GPIO_PinAFConfig(), but that helper is a read-
+           modify-write on a single nibble, so the rest of the table
+           survives.  The values are identical by construction. */
         *p->aflr = p->afrl;
-        *p->afhr = p->afhr;
+        *p->afhr = p->afrh;
 
         for (pin = 0U; pin < 16U; pin++) {
             const uint32_t m  = (p->moder  >> (pin * 2U)) & 3U;
@@ -85,7 +89,7 @@ static void ch32_gpio_init(void)
             const uint32_t pu = (p->pupdr  >> (pin * 2U)) & 3U;
             const uint32_t af = (pin < 8U)
                               ? ((p->afrl >> ((pin % 8U) * 4U)) & 0x0FU)
-                              : ((p->afhr >> ((pin % 8U) * 4U)) & 0x0FU);
+                              : ((p->afrh >> ((pin % 8U) * 4U)) & 0x0FU);
             iomode_t mode;
 
             switch (m) {
@@ -112,10 +116,16 @@ static void ch32_gpio_init(void)
 
             palSetPadMode(p->gpio, pin, mode);
 
-            if ((p->odr >> pin) & 1U) {
-                palSetPad(p->gpio, pin);
-            } else {
-                palClearPad(p->gpio, pin);
+            /* GPIO_Init() drives BSHR/BCR from the mode for IPU/IPD pins,
+               and ODR is meaningless for AF and analog pins.  Writing ODR
+               for every pad would silently turn every pull-up input into a
+               pull-down/floating one, so only drive plain GPIO outputs. */
+            if (m == 1U) {
+                if ((p->odr >> pin) & 1U) {
+                    palSetPad(p->gpio, pin);
+                } else {
+                    palClearPad(p->gpio, pin);
+                }
             }
         }
     }
