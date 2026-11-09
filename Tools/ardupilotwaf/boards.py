@@ -1616,12 +1616,106 @@ class chibios_riscv(chibios):
         if cfg.env.DEBUG:
             env.CFLAGS += ['-gdwarf-4', '-g3']
             env.LINKFLAGS += ['-gdwarf-4', '-g3']
+
+        # Architecture-neutral configuration from chibios.configure_env().
+        # That method is skipped above because most of its flags are ARM-only,
+        # but this tail must stay in sync with it: AP_HAL_Macros.h expands
+        # AP_SIM_ENABLED inside a #if expression, and Board.configure_env()
+        # enables -Werror=undef, so a missing define breaks every C++ TU.
         if cfg.env.ENABLE_ASSERTS:
+            cfg.msg("Enabling ChibiOS asserts", "yes")
             env.CFLAGS += ['-DHAL_CHIBIOS_ENABLE_ASSERTS']
             env.CXXFLAGS += ['-DHAL_CHIBIOS_ENABLE_ASSERTS']
+        else:
+            cfg.msg("Enabling ChibiOS asserts", "no")
+
         if cfg.options.disable_watchdog:
+            cfg.msg("Disabling Watchdog", "yes")
             env.CFLAGS += ['-DDISABLE_WATCHDOG']
             env.CXXFLAGS += ['-DDISABLE_WATCHDOG']
+        else:
+            cfg.msg("Disabling Watchdog", "no")
+
+        if cfg.env.ENABLE_MALLOC_GUARD:
+            cfg.msg("Enabling malloc guard", "yes")
+            env.CFLAGS += ['-DHAL_CHIBIOS_ENABLE_MALLOC_GUARD']
+            env.CXXFLAGS += ['-DHAL_CHIBIOS_ENABLE_MALLOC_GUARD']
+        else:
+            cfg.msg("Enabling malloc guard", "no")
+
+        if cfg.env.ENABLE_STATS:
+            cfg.msg("Enabling ChibiOS thread statistics", "yes")
+            env.CFLAGS += ['-DHAL_ENABLE_THREAD_STATISTICS']
+            env.CXXFLAGS += ['-DHAL_ENABLE_THREAD_STATISTICS']
+        else:
+            cfg.msg("Enabling ChibiOS thread statistics", "no")
+
+        if cfg.env.SAVE_TEMPS:
+            env.CXXFLAGS += ['-S', '-save-temps=obj']
+
+        if cfg.env.SIM_ENABLED:
+            env.DEFINES.update(AP_SIM_ENABLED=1)
+            env.AP_LIBRARIES += ['SITL']
+        else:
+            env.DEFINES.update(AP_SIM_ENABLED=0)
+
+        env.LIB += ['gcc', 'm']
+
+        env.GIT_SUBMODULES += ['ChibiOS']
+
+        env.INCLUDES += [
+            cfg.srcnode.find_dir('libraries/AP_GyroFFT/CMSIS_5/include').abspath(),
+            cfg.srcnode.find_dir('modules/lwip/src/include/compat/posix').abspath(),
+        ]
+
+        if cfg.env.HAL_CANFD_SUPPORTED:
+            env.DEFINES.update(CANARD_ENABLE_CANFD=1)
+        else:
+            env.DEFINES.update(CANARD_ENABLE_TAO_OPTION=1)
+        if not cfg.options.bootloader and cfg.env.HAL_NUM_CAN_IFACES:
+            if int(cfg.env.HAL_NUM_CAN_IFACES) >= 1:
+                env.DEFINES.update(CANARD_IFACE_ALL=(1 << int(cfg.env.HAL_NUM_CAN_IFACES)) - 1)
+
+        # whitelist of compilers which we should build with -Werror
+        gcc_whitelist = frozenset([
+            ('4', '9', '3'),
+            ('6', '3', '1'),
+            ('9', '2', '1'),
+            ('9', '3', '1'),
+            ('10', '2', '1'),
+            ('11', '3', '0'),
+            ('11', '4', '0'),
+        ])
+        if not cfg.options.disable_Werror and (cfg.options.Werror or cfg.env.CC_VERSION in gcc_whitelist):
+            cfg.msg("Enabling -Werror", "yes")
+            if '-Werror' not in env.CXXFLAGS:
+                env.CXXFLAGS += ['-Werror']
+        else:
+            cfg.msg("Enabling -Werror", "no")
+
+        if cfg.options.signed_fw:
+            cfg.define('AP_SIGNED_FIRMWARE', 1)
+            env.CFLAGS += ['-DAP_SIGNED_FIRMWARE=1']
+        else:
+            cfg.define('AP_SIGNED_FIRMWARE', 0)
+            env.CFLAGS += ['-DAP_SIGNED_FIRMWARE=0']
+
+        try:
+            import intelhex
+            env.HAVE_INTEL_HEX = True
+            cfg.msg("Checking for intelhex module:", 'OK')
+        except Exception:
+            env.HAVE_INTEL_HEX = False
+            cfg.msg("Checking for intelhex module:", 'disabled', color='YELLOW')
+
+        if cfg.options.enable_new_checking:
+            env.CHECK_SYMBOLS = True
+        else:
+            # disable new checking on ChibiOS by default to save flash
+            env.CXXFLAGS += [
+                '-DNEW_NOTHROW=new',
+                '-fcheck-new',
+            ]
 
         # generate_bin splits the ELF into intf.bin/extf.bin by section
         # address.  On this board the application is entirely in the QSPI2
