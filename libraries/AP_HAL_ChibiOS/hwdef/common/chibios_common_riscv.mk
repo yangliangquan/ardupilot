@@ -87,7 +87,10 @@ TCPPOBJS  := $(addprefix $(OBJDIR)/, $(notdir $(TCPPSRC:.cpp=.o)))
 ASMOBJS   := $(addprefix $(OBJDIR)/, $(notdir $(ASMSRC:.s=.o)))
 ASMXOBJS  := $(addprefix $(OBJDIR)/, $(notdir $(ASMXSRC:.S=.o)))
 CRASHCATCHER_ASMXOBJS := $(addprefix $(OBJDIR)/, $(notdir $(CRASHCATCHER_ASMXSRC:.S=.o)))
-OBJS      := $(ASMXOBJS) $(ASMOBJS) $(ACOBJS) $(TCOBJS) $(ACPPOBJS) $(TCPPOBJS)
+# sort() also de-duplicates: two source files with the same basename in
+# different directories would otherwise produce the same .o target and
+# make warns "target given more than once in the same rule".
+OBJS      := $(sort $(ASMXOBJS) $(ASMOBJS) $(ACOBJS) $(TCOBJS) $(ACPPOBJS) $(TCPPOBJS))
 
 # Paths
 IINCDIR   := $(patsubst %,-I%,$(INCDIR) $(DINCDIR) $(UINCDIR))

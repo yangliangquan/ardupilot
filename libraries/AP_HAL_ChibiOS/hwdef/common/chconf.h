@@ -102,6 +102,14 @@ extern "C" {
  * @brief   System time counter resolution.
  * @note    Allowed values are 16 or 32 bits.
  */
+#if defined(CH32H417)
+/* adapt-417's freerunning ST is driven by a 16-bit TIM2..TIM5 counter,
+   so OSAL_ST_RESOLUTION must be 16.  Keep 32-bit intervals/time types so
+   ArduPilot's long timeouts and sysinterval_t keep their usual range. */
+#define CH_CFG_ST_RESOLUTION                16
+#define CH_CFG_INTERVALS_SIZE               32
+#endif
+
 #ifndef CH_CFG_ST_RESOLUTION
 #define CH_CFG_ST_RESOLUTION                32
 #endif

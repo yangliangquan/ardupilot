@@ -89,7 +89,10 @@ include $(CHIBIOS)/$(CHIBIOS_STARTUP_MK)
 include $(CHIBIOS)/os/hal/hal.mk
 include $(CHIBIOS)/$(CHIBIOS_PLATFORM_MK)
 include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
-include $(CHIBIOS)/$(CHIBIOS_BOARD_MK)
+# NOTE: adapt-417's CUSTOM_CH32H417/board.mk is deliberately NOT included.
+# It adds its own board.c (a duplicate board.o target) and puts a board.h in
+# the include path that shadows AP_HAL's board.h (losing
+# HAL_BOARD_INIT_HOOK_CALL).  This board uses hwdef/common/board_ch32.c.
 include $(CHIBIOS)/os/rt/rt.mk
 include $(CHIBIOS)/os/common/ports/RISCV-ECLIC/compilers/GCC/mk/port.mk
 include $(CHIBIOS)/os/hal/lib/streams/streams.mk
@@ -100,7 +103,7 @@ LDSCRIPT ?= $(BUILDROOT)/ldscript.ld
 CSRC = $(sort $(ALLCSRC))
 
 CSRC += $(HWDEF)/common/stubs.c \
-        $(HWDEF)/common/board.c \
+        $(HWDEF)/common/board_ch32.c \
         $(HWDEF)/common/usbcfg.c \
         $(HWDEF)/common/usbcfg_common.c \
         $(HWDEF)/common/flash.c \
@@ -116,9 +119,9 @@ CSRC += $(CHIBIOS)/os/various/scsi_bindings/lib_scsi.c \
         $(CHIBIOS)/os/hal/src/hal_usb_msd.c
 endif
 
-ifeq ($(USE_FATFS),yes)
-CSRC += $(CHIBIOS)/os/various/fatfs_bindings/fatfs_syscall.c
-endif
+# fatfs.mk (included above when USE_FATFS=yes) already adds
+# fatfs_syscall.c to ALLCSRC; adding it again creates a duplicate
+# fatfs_syscall.o target.
 
 CPPSRC = $(sort $(ALLCPPSRC))
 
@@ -135,8 +138,7 @@ ASMXSRC = $(ALLXASMSRC)
 CRASHCATCHER_ASMXSRC =
 
 INCDIR = $(CHIBIOS)/os/license \
-         $(ALLINC) $(HWDEF)/common $(BUILDROOT) \
-         $(CHIBIOS)/os/hal/boards/CUSTOM_CH32H417
+         $(ALLINC) $(HWDEF)/common $(BUILDROOT)
 
 ifeq ($(ENABLE_CRASHDUMP),yes)
 INCDIR += $(AP_HAL)

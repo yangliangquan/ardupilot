@@ -16,6 +16,19 @@ peripheral layout (derived from the CH32H417 datasheet pin mux tables).
 This is the only portion of the earlier port reused on this branch.
 '''
 
+# GPIO ports present on the CH32H417 (adapt-417 GPIOv1 LLD exposes
+# IOPORT1..IOPORT6 -> GPIOA..GPIOF).  Overrides the generator's fallback,
+# which would otherwise emit VAL_GPIOG_*/VAL_GPIOH_* for ports this part
+# does not have.
+pincount = {
+    'A': 16,
+    'B': 16,
+    'C': 16,
+    'D': 16,
+    'E': 16,
+    'F': 16,
+    }
+
 # additional build information for ChibiOS (adapt-417 port layout)
 build = {
     "CHIBIOS_STARTUP_MK"  : "os/common/startup/RISCV-ECLIC/compilers/GCC/mk/startup_ch32h417.mk",

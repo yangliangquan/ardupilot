@@ -16,6 +16,13 @@
 
 #include "hal.h"
 
+#if defined(CH32H417)
+/* The STM32 ports get stm32_tim_t from stm32_tim.h.  The CH32H417 vendor
+   header calls the equivalent register block TIM_TypeDef; keep the two
+   helper prototypes below compilable for shared AP_HAL_ChibiOS sources. */
+typedef TIM_TypeDef stm32_tim_t;
+#endif
+
 #ifndef AP_WATCHDOG_SAVE_FAULT_ENABLED
 #define AP_WATCHDOG_SAVE_FAULT_ENABLED 1
 #endif
