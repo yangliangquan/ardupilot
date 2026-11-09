@@ -106,7 +106,7 @@ CSRC += $(HWDEF)/common/stubs.c \
         $(HWDEF)/common/board_ch32.c \
         $(HWDEF)/common/usbcfg.c \
         $(HWDEF)/common/usbcfg_common.c \
-        $(HWDEF)/common/flash.c \
+        $(HWDEF)/common/flash_ch32.c \
         $(HWDEF)/common/malloc.c \
         $(HWDEF)/common/hrt.c \
         $(HWDEF)/common/stm32_util.c \
