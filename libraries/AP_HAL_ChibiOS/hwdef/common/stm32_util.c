@@ -17,11 +17,69 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#if !defined(CH32H417)
+/* STM32-only DMA header; the CH32 port has no equivalent and this file
+   does not use any of its symbols. */
 #include <stm32_dma.h>
+#endif
 #include <hrt.h>
 
 static int64_t utc_time_offset;
 
+#if defined(CH32H417)
+/*
+  The CH32H417 TIM block uses the STM32F1-style register names: CHCTLR1 /
+  CHCTLR2 / CCER replace CCMR1 / CCMR2 / CCER, but the ICxF, CCxS and CCxE
+  bit positions are the same.  The vendor header exports TIM_IC1F..TIM_IC4F
+  and TIM_CC1S/TIM_CC2S/TIM_CC1E/TIM_CC2E; the channel 3/4 equivalents are
+  spelled out as constants because those names are not exported.
+ */
+void stm32_timer_set_input_filter(stm32_tim_t *tim, uint8_t channel, uint8_t filter_mode)
+{
+    const uint16_t f = (uint16_t)(filter_mode & 0x0FU);
+    switch (channel) {
+    case 0:
+        tim->CHCTLR1 = (uint16_t)((tim->CHCTLR1 & (uint16_t)~TIM_IC1F) | (uint16_t)(f << 4));
+        break;
+    case 1:
+        tim->CHCTLR1 = (uint16_t)((tim->CHCTLR1 & (uint16_t)~TIM_IC2F) | (uint16_t)(f << 12));
+        break;
+    case 2:
+        tim->CHCTLR2 = (uint16_t)((tim->CHCTLR2 & (uint16_t)~TIM_IC3F) | (uint16_t)(f << 4));
+        break;
+    case 3:
+        tim->CHCTLR2 = (uint16_t)((tim->CHCTLR2 & (uint16_t)~TIM_IC4F) | (uint16_t)(f << 12));
+        break;
+    }
+}
+
+void stm32_timer_set_channel_input(stm32_tim_t *tim, uint8_t channel, uint8_t input_source)
+{
+    const uint16_t sel = (uint16_t)(input_source & 0x03U);
+    switch (channel) {
+    case 0:
+        tim->CCER &= (uint16_t)~TIM_CC1E;
+        tim->CHCTLR1 = (uint16_t)((tim->CHCTLR1 & (uint16_t)~TIM_CC1S) | sel);
+        tim->CCER |= TIM_CC1E;
+        break;
+    case 1:
+        tim->CCER &= (uint16_t)~TIM_CC2E;
+        tim->CHCTLR1 = (uint16_t)((tim->CHCTLR1 & (uint16_t)~TIM_CC2S) | (uint16_t)(sel << 8));
+        tim->CCER |= TIM_CC2E;
+        break;
+    case 2:
+        tim->CCER &= (uint16_t)~0x0100U;                 /* TIM_CC3E */
+        tim->CHCTLR2 = (uint16_t)((tim->CHCTLR2 & (uint16_t)~0x0003U) | sel);
+        tim->CCER |= 0x0100U;
+        break;
+    case 3:
+        tim->CCER &= (uint16_t)~0x1000U;                 /* TIM_CC4E */
+        tim->CHCTLR2 = (uint16_t)((tim->CHCTLR2 & (uint16_t)~0x0300U) | (uint16_t)(sel << 8));
+        tim->CCER |= 0x1000U;
+        break;
+    }
+}
+#else
 /*
   setup the timer capture digital filter for a channel
  */
@@ -75,6 +133,7 @@ void stm32_timer_set_channel_input(stm32_tim_t *tim, uint8_t channel, uint8_t in
             break;
     }
 }
+#endif /* CH32H417 */
 
 #if CH_DBG_ENABLE_STACK_CHECK == TRUE && !defined(HAL_BOOTLOADER_BUILD)
 void show_stack_usage(void)
@@ -289,6 +348,19 @@ void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n)
     (void)v;
     (void)n;
 }
+
+/* stm32_util.h declares these unconditionally and Scheduler.cpp calls
+   set_fast_reboot(); without them a build with AP_FASTBOOT_ENABLED=0
+   (currently the CH32H417 port) fails at link time. */
+enum rtc_boot_magic check_fast_reboot(void)
+{
+    return RTC_BOOT_OFF;
+}
+
+void set_fast_reboot(enum rtc_boot_magic v)
+{
+    (void)v;
+}
 #endif // AP_FASTBOOT_ENABLED
 
 /*
@@ -400,6 +472,26 @@ void stm32_set_line_mode(ioline_t line, iomode_t mode)
     chSysRestoreStatusX(sts);
 }
 
+#if defined(CH32H417)
+/* cacheBufferInvalidate()/Flush() are ARMCMx-only (os/hal/ports/common/
+   ARMCMx/cache.h); the RISC-V port has no data-cache maintenance API.
+   QSPI XIP fetches are transparent to the DTCM/SRAM buffers ArduPilot
+   passes here, so a compiler barrier is sufficient to order CPU writes
+   before a DMA transfer starts. */
+void stm32_cacheBufferInvalidate(const void *p, size_t size)
+{
+    (void)p;
+    (void)size;
+    __asm__ __volatile__ ("" ::: "memory");
+}
+
+void stm32_cacheBufferFlush(const void *p, size_t size)
+{
+    (void)p;
+    (void)size;
+    __asm__ __volatile__ ("" ::: "memory");
+}
+#else
 void stm32_cacheBufferInvalidate(const void *p, size_t size)
 {
     cacheBufferInvalidate(p, size);
@@ -409,6 +501,7 @@ void stm32_cacheBufferFlush(const void *p, size_t size)
 {
     cacheBufferFlush(p, size);
 }
+#endif /* CH32H417 */
 
 
 #ifdef HAL_GPIO_PIN_FAULT
@@ -512,6 +605,43 @@ uint32_t stack_free(void *stack_base)
 #endif
 
 #if HAL_USE_HW_RNG && defined(RNG)
+#if defined(CH32H417)
+#include "hal_trng.h"
+
+/*
+  Use adapt-417's TRNGv1 LLD instead of poking RNG->SR/DR directly.
+  trngGenerate() returns true on error (clock/seed fault or spin timeout),
+  and owns its own bounded spin loop, so the caller's timeout_us is not
+  needed.  The LLD has no non-blocking counterpart, so the non-blocking
+  entry point reports zero bytes and Util::get_random_vals() takes its
+  documented get_random16() fallback; Util::get_true_random_vals() gets
+  real entropy.
+ */
+static bool ch32_trng_started;
+
+static void ch32_trng_start(void)
+{
+    static const TRNGConfig trngcfg = { 0U };
+    if (!ch32_trng_started) {
+        trngStart(&TRNGD1, &trngcfg);
+        ch32_trng_started = true;
+    }
+}
+
+bool stm32_rand_generate_blocking(unsigned char *output, unsigned int sz, uint32_t timeout_us)
+{
+    (void)timeout_us;
+    ch32_trng_start();
+    return !trngGenerate(&TRNGD1, sz, (uint8_t *)output);
+}
+
+unsigned int stm32_rand_generate_nonblocking(unsigned char *output, unsigned int sz)
+{
+    (void)output;
+    (void)sz;
+    return 0U;
+}
+#else
 static bool stm32_rand_generate(uint32_t *val)
 {
     uint32_t error_bits = 0;
@@ -579,6 +709,7 @@ unsigned int stm32_rand_generate_nonblocking(unsigned char* output, unsigned int
     return i;
 }
 
+#endif /* CH32H417 */
 #endif // #if HAL_USE_HW_RNG && defined(RNG)
 
 /*

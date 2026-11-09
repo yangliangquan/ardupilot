@@ -21,6 +21,12 @@
    header calls the equivalent register block TIM_TypeDef; keep the two
    helper prototypes below compilable for shared AP_HAL_ChibiOS sources. */
 typedef TIM_TypeDef stm32_tim_t;
+
+/* The CH32H417 port does not expose RTC backup registers through the
+   ArduPilot HAL yet.  Use the no-op fastboot/RTC-backup path in
+   stm32_util.c; the crash-dump watchdog save/load therefore keeps no
+   persistent state until an RTC/backup-register backend is added. */
+#define AP_FASTBOOT_ENABLED 0
 #endif
 
 #ifndef AP_WATCHDOG_SAVE_FAULT_ENABLED

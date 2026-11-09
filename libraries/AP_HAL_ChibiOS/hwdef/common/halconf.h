@@ -181,6 +181,17 @@
 #define HAL_USE_SPI                 TRUE
 #endif
 
+#if defined(CH32H417)
+/* adapt-417 provides TRNGv1 and IWDGv1 low level drivers.  Enable the
+   ChibiOS generic layers here so ArduPilot can drive RNG/IWDG through
+   wdgStart()/wdgReset() and trngGenerate() instead of touching the
+   registers directly.  os/hal/hal.mk literally greps halconf.h for
+   "HAL_USE_TRNG TRUE" / "HAL_USE_WDG TRUE" when selecting hal_trng.c and
+   hal_wdg.c, so these must be spelled out rather than derived. */
+#define HAL_USE_TRNG                        TRUE
+#define HAL_USE_WDG                         TRUE
+#endif
+
 /**
  * @brief   Enables the TRNG subsystem.
  */

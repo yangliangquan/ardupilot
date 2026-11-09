@@ -6,6 +6,12 @@
 #include "watchdog.h"
 #include "stm32_util.h"
 
+#if defined(CH32H417)
+/* adapt-417 provides an IWDGv1 low level driver; drive the watchdog
+   through wdgStart()/wdgReset() rather than programming IWDG directly. */
+#include "hal_wdg.h"
+#endif
+
 #ifndef IWDG_BASE
 #if defined(STM32H7)
 #define IWDG_BASE             0x58004800
@@ -49,6 +55,13 @@
 #define WDG_RESET_CLEAR (1U<<23)
 #define WDG_RESET_IS_IWDG (1U<<29)
 #define WDG_RESET_IS_SFT (1U<<28)
+#elif defined(CH32H417)
+/* CH32H417 reset status/control register; the vendor header names the
+   flags RCC_RMVF / RCC_IWDGRSTF / RCC_SFTRSTF. */
+#define WDG_RESET_STATUS (RCC->RSTSCKR)
+#define WDG_RESET_CLEAR  RCC_RMVF
+#define WDG_RESET_IS_IWDG RCC_IWDGRSTF
+#define WDG_RESET_IS_SFT  RCC_SFTRSTF
 #else
 #error "Unsupported IWDG MCU config"
 #endif
@@ -90,6 +103,30 @@ static volatile bool lockup_paused;
 /*
   setup the watchdog
  */
+#if defined(CH32H417)
+void stm32_watchdog_init(void)
+{
+    /* t = 4 * 2^PR * (RLR+1) / 32KHz, PR=3 gives a 1kHz tick so RLR is
+       the timeout in milliseconds minus one.  The IWDGv1 LLD applies the
+       unlock/prescaler/reload/reload/enable sequence for us. */
+    static const WDGConfig wdgcfg = {
+        .pr  = CH32_IWDG_PR_32,
+        .rlr = STM32_WDG_TIMEOUT_MS - 1U,
+    };
+    wdgStart(&WDGD1, &wdgcfg);
+    watchdog_enabled = true;
+}
+
+void stm32_watchdog_pat(void)
+{
+    if (watchdog_enabled) {
+        wdgReset(&WDGD1);
+#if AP_WATCHDOG_LOCKUP_DETECT_ENABLED
+        lockup_heartbeat++;
+#endif
+    }
+}
+#else
 void stm32_watchdog_init(void)
 {
     // setup the watchdog timeout
@@ -101,18 +138,6 @@ void stm32_watchdog_init(void)
     watchdog_enabled = true;
 }
 
-/*
-  return true if the watchdog has been started
- */
-bool stm32_watchdog_enabled(void)
-{
-    return watchdog_enabled;
-}
-
-/*
-  pat the dog, to prevent a reset. If not called for STM32_WDG_TIMEOUT_MS
-  after stm32_watchdog_init() then MCU will reset
- */
 void stm32_watchdog_pat(void)
 {
     if (watchdog_enabled) {
@@ -121,6 +146,15 @@ void stm32_watchdog_pat(void)
         lockup_heartbeat++;
 #endif
     }
+}
+#endif /* CH32H417 */
+
+/*
+  return true if the watchdog has been started
+ */
+bool stm32_watchdog_enabled(void)
+{
+    return watchdog_enabled;
 }
 
 #if AP_WATCHDOG_LOCKUP_DETECT_ENABLED

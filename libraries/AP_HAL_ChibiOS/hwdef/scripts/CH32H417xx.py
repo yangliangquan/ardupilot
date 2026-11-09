@@ -45,6 +45,22 @@ mcu = {
     # Selects the RISC-V startup / linker path in chibios_hwdef.py.
     'ARCH' : 'riscv',
 
+    # 12-byte CPU serial number for usbcfg_common.c.  The CH32H417 factory
+    # electronic-signature / IDCODE window starts at 0x1FFFF704 (the vendor
+    # DBGMCU driver reads the device+revision ID from exactly this address).
+    # It is readable ROM, so usbcfg_common.c can derive a stable USB serial
+    # from it.  If the datasheet names a dedicated 96-bit UID elsewhere in
+    # the ESIG block, point this at that address instead.
+    'UDID_START' : 0x1FFFF704,
+
+    # adapt-417 ships a TRNGv1 low level driver, so ArduPilot's Util.cpp
+    # can take the true-random path instead of the get_random16() fallback.
+    # chibios_hwdef.py skips its non-H7 "FALSE" default when the key is
+    # present in DEFINES.
+    'DEFINES' : {
+        'HAL_USE_HW_RNG' : 'TRUE',
+    },
+
     # ---- flash windows ----
     # Internal CodeFlash XIP window.  V3F owns 0x00000000..0x0000FFFF,
     # the V5F bootloader starts at 0x00010000 (zero wait states).
