@@ -21,6 +21,18 @@ extern "C" {
 #define AP_SETJMP_CORTEX_ENABLE 0
 #endif
 
+// ArduPilot links with -Wl,--wrap,setjmp and treats a lingering "setjmp"
+// symbol as a hard error (see Tools/ardupilotwaf/chibios.py SYMBOLS_BLACKLIST),
+// so on the RISC-V port we also cannot fall back to the C library. The
+// QingKe V5F part is built for rv32imafc, i.e. with the single precision F
+// extension, whose callee-saved registers fs0..fs11 must be preserved across
+// a longjmp just like the integer s0..s11.
+#if (CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS) && defined(__riscv)
+#define AP_SETJMP_RISCV_ENABLE 1
+#else
+#define AP_SETJMP_RISCV_ENABLE 0
+#endif
+
 #if AP_SETJMP_CORTEX_ENABLE
 
 #include <inttypes.h>
@@ -40,6 +52,34 @@ typedef struct _ap_jmp_buf ap_jmp_buf[1];
 
 int __attribute__((naked, noinline)) ap_setjmp(ap_jmp_buf env);
 void __attribute__((noreturn, naked, noinline)) ap_longjmp(ap_jmp_buf env, int val);
+
+#elif AP_SETJMP_RISCV_ENABLE
+
+#include <inttypes.h>
+
+/*
+  RISC-V (rv32imafc) buffer layout, 32-bit words:
+
+     0 : ra
+     4 : sp
+     8 : s0/fp
+    12 : s1
+    16 : s2   ...  52 : s11
+    56 : fs0  ... 100 : fs11
+
+  13 int64_t keeps the buffer 8-byte aligned and matches the 104 bytes used
+  (the same size the Cortex-M version needs).
+ */
+
+struct _ap_jmp_buf {
+    int64_t data[13];
+};
+
+// hack to allow ap_jmp_buf to decay to a pointer
+typedef struct _ap_jmp_buf ap_jmp_buf[1];
+
+int ap_setjmp(ap_jmp_buf env);
+void __attribute__((noreturn)) ap_longjmp(ap_jmp_buf env, int val);
 
 #else
 
