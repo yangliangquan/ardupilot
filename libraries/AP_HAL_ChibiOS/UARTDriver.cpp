@@ -61,6 +61,23 @@ static bool usb_driver_active(SerialUSBDriver *driver)
 #endif
 #endif
 
+#if defined(__CH32H417_H)
+/*
+ * CH32 USART register-name aliases for the STM32-style member accesses in
+ * this file (usart->CR1/CR2/CR3/SR/DR).  The CH32H417 USART is the F1
+ * register model: the vendor header names the blocks CTLR1/CTLR2/CTLR3/
+ * STATR/DATAR with identical bit layout (CH32H417RM 19.11), so only the
+ * member names are aliased.  The CRx *bit* macros (USART_CR1_IDLEIE etc.)
+ * are bridged centrally in the generated hwdef.h.  File-local: all are
+ * #undef'd at the end of this file.
+ */
+#define CR1 CTLR1
+#define CR2 CTLR2
+#define CR3 CTLR3
+#define SR  STATR
+#define DR  DATAR
+#endif // __CH32H417_H
+
 #if HAL_WITH_IO_MCU
 extern ChibiOS::UARTDriver uart_io;
 #endif
@@ -428,6 +445,8 @@ void UARTDriver::_begin(uint32_t b, uint16_t rxS, uint16_t txS)
                     chSysUnlock();
 #if defined(STM32F7) || defined(STM32H7) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
                     dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->RDR);
+#elif defined(__CH32H417_H)
+                    dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->DATAR);
 #else
                     dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->DR);
 #endif // STM32F7
@@ -607,6 +626,10 @@ void UARTDriver::rx_irq_cb(void* self)
     //disable dma, triggering DMA transfer complete interrupt
     dmaStreamDisable(uart_drv->rxdma);
     uart_drv->rxdma->channel->CCR &= ~STM32_DMA_CR_EN;
+#elif defined(__CH32H417_H)
+    //disable dma, triggering DMA transfer complete interrupt
+    //ch32DmaStreamDisable() clears CFGR.EN/TCIE/HTIE/TEIE and the INTFR flags
+    dmaStreamDisable(uart_drv->rxdma);
 #else
     volatile uint16_t sr = ((SerialDriver*)(uart_drv->sdef.serial))->usart->SR;
     if(sr & USART_SR_IDLE) {
@@ -1178,6 +1201,8 @@ void UARTDriver::_rx_timer_tick(void)
         //let's handle that here so that we can continue receiving
 #if defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
         bool enabled = (rxdma->channel->CCR & STM32_DMA_CR_EN);
+#elif defined(__CH32H417_H)
+        bool enabled = (rxdma->channel->CFGR & STM32_DMA_CR_EN);
 #else
         bool enabled = (rxdma->stream->CR & STM32_DMA_CR_EN);
 #endif
@@ -1902,5 +1927,13 @@ void UARTDriver::usb_debug_lock(bool lock)
     }
 }
 #endif // AP_USB_DEBUG_ENABLED
+
+#if defined(__CH32H417_H)
+#undef CR1
+#undef CR2
+#undef CR3
+#undef SR
+#undef DR
+#endif // __CH32H417_H
 
 #endif // CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS && AP_HAL_UARTDRIVER_ENABLED
