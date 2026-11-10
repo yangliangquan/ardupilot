@@ -228,14 +228,31 @@ do_jump(uint32_t stacktop, uint32_t entrypoint)
     SCB_DisableICache();
 #endif
 
-    chSysLock();    
+    chSysLock();
 
+#if defined(__CH32H417_H)
+    /*
+     * QingKe V5F (rv32imafc).  There is no MSP/PSP split and no 'bx'
+     * instruction: the application's own entry code (_crt0_entry in
+     * crt0.S) loads gp, sp, mtvec and mstatus, so all the bootloader has
+     * to do is jump to the image entry point.  Interrupts are already off
+     * (chSysLock() clears mstatus.MIE) and the app clears MIE again as its
+     * first instruction.  'jr' is a plain register jump, so it reaches the
+     * whole 4GB address space, unlike jal with its +-1MB range.
+     */
+    (void)stacktop;
+    asm volatile(
+        "jr %0\n"
+        : : "r"(entrypoint) : "memory");
+    __builtin_unreachable();
+#else
     // we set sp as well as msp to avoid an issue with loading NuttX
     asm volatile(
-        "mov sp, %0	\n"
-        "msr msp, %0	\n"
-        "bx	%1	\n"
+        "mov sp, %0\t\n"
+        "msr msp, %0\t\n"
+        "bx\t%1\t\n"
         : : "r"(stacktop), "r"(entrypoint) :);
+#endif
 }
 
 #ifndef APP_START_ADDRESS
@@ -278,9 +295,16 @@ jump_to_app()
         }
     }
 
+#if !defined(__CH32H417_H)
     /*
-     * The second word of the app is the entrypoint; it must point within the
-     * flash area (or we have a bad flash).
+     * Cortex-M images start with {initial stack pointer, reset vector}, so
+     * check that the reset vector points inside the image.
+     *
+     * RISC-V (CH32H417) images do not have that layout: word 0 is the first
+     * instruction of crt0 (_start, which falls through into _crt0_entry) and
+     * the image entry point is simply APP_START_ADDRESS.  The erased-flash
+     * test above already rejects a truncated upload, because the uploader
+     * writes RESERVE_LEAD_WORDS last.
      */
     if (app_base[1] < APP_START_ADDRESS) {
         goto exit;
@@ -295,6 +319,7 @@ jump_to_app()
         goto exit;
     }
 #endif
+#endif // __CH32H417_H
 
 #if HAL_USE_CAN == TRUE ||  HAL_NUM_CAN_IFACES
     // for CAN firmware we start the watchdog before we run the
@@ -313,7 +338,17 @@ jump_to_app()
     led_set(LED_OFF);
 
     // resetting the clocks is needed for loading NuttX
-#if defined(STM32H7)
+#if defined(__CH32H417_H)
+    /*
+     * The WCH port has no rccDisableAPBx() helpers, and a blanket
+     * peripheral-clock reset would be actively harmful: the application
+     * executes in place from the QSPI2 XIP window, so QSPI2 and the buses
+     * it hangs off have to stay enabled across the handover.  Everything
+     * the bootloader opened (USART3, USB FS) is re-initialised from
+     * scratch by the application's halInit(); usb_lld_start() even resets
+     * the USB SIE itself.
+     */
+#elif defined(STM32H7)
     rccDisableAPB1L(~0);
     rccDisableAPB1H(~0);
 #elif defined(STM32G4)
@@ -328,9 +363,13 @@ jump_to_app()
 #else
     rccDisableAPB1(~0);
 #endif
+#if !defined(__CH32H417_H)
     rccDisableAPB2(~0);
+#endif
 #if HAL_USE_SERIAL_USB == TRUE
-#if !STM32_OTG2_IS_OTG1
+#if !STM32_OTG2_IS_OTG1 && !defined(__CH32H417_H)
+    // CH32: usb_lld_start() resets the SIE, and the WCH port has no
+    // rccResetOTG_FS().
     rccResetOTG_FS();
 #endif
 #if defined(rccResetOTG_HS)
@@ -341,11 +380,22 @@ jump_to_app()
     // disable all interrupt sources
     port_disable();
 
+#if !defined(__CH32H417_H)
     /* switch exception handlers to the application */
     *(volatile uint32_t *)SCB_VTOR = APP_START_ADDRESS;
+#else
+    /* No SCB->VTOR on the QingKe V5F: the application's crt0 loads mtvec
+       from its own _vector_base symbol before it enables interrupts, so
+       there is nothing for the bootloader to point at the app here. */
+#endif
 
     /* extract the stack and entrypoint from the app vector table and go */
+#if defined(__CH32H417_H)
+    // RISC-V: entry is the first byte of the image, crt0 sets up sp itself.
+    do_jump(0, APP_START_ADDRESS);
+#else
     do_jump(app_base[0], app_base[1]);
+#endif
 exit:
 #if EXT_FLASH_SIZE_MB
     ext_flash.stop_xip_mode();
