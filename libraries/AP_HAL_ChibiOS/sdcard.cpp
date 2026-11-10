@@ -59,6 +59,15 @@ bool sdcard_init_raw(uint8_t sd_slowdown, uint8_t tries)
     auto &sdcd = SDCD1;
 #endif
 
+#if defined(__CH32H417_H)
+    /*
+     * The CH32 SDIOv1/SDMMC LLD has no bouncebuffer member: unaligned
+     * transfers are staged internally through the 16-byte aligned
+     * sdc->buf in sdc_lld_read()/sdc_lld_write() (hal_sdc_lld.c), and the
+     * buffers ArduPilot passes here live in DMA-capable SRAM.  No FATFS
+     * IO-size hint is applied, so FATFS keeps its default window.
+     */
+#else
     if (sdcd.bouncebuffer == nullptr) {
         // allocate 4k-32k bouncebuffer for microSD to match size in
         // AP_Logger
@@ -86,6 +95,7 @@ bool sdcard_init_raw(uint8_t sd_slowdown, uint8_t tries)
             return false;
         }
     }
+#endif // __CH32H417_H
 
     if (sdcard_running) {
         sdcard_stop();
