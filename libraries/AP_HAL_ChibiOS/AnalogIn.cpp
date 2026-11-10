@@ -567,7 +567,15 @@ void AnalogIn::setup_adc(uint8_t index)
     adcgrpcfg[index].circular = true;
     adcgrpcfg[index].num_channels = num_grp_channels;
     adcgrpcfg[index].end_cb = adccallback;
-#if defined(ADC_CFGR_RES_16BITS)
+#if defined(CH32H417)
+    /* The CH32 ADCv1 LLD takes an ordered list of ADC_Channel_x codes plus
+       one shared sample-time mode; it has no SQR/SMPR/CFGR register images.
+       The list must outlive setup_adc() because the driver keeps the pointer,
+       hence static storage.  It is filled in by the channel loop below. */
+    static uint8_t chan_list[HAL_NUM_ANALOG_INPUTS][20];
+    adcgrpcfg[index].channels = chan_list[index];
+    adcgrpcfg[index].sample_time = ADC_SampleTime_CyclesMode7;
+#elif defined(ADC_CFGR_RES_16BITS)
     // use 16 bit resolution
     adcgrpcfg[index].cfgr = ADC_CFGR_CONT | ADC_CFGR_RES_16BITS;
 #elif defined(ADC_CFGR_RES_12BITS)
@@ -588,7 +596,12 @@ void AnalogIn::setup_adc(uint8_t index)
     for (uint8_t i=0; i<num_grp_channels; i++) {
         uint8_t chan = get_pin_channel(index, i);
         // setup cycles per sample for the channel
-#if defined(STM32H7)
+#if defined(CH32H417)
+        /* ADC_Channel_x codes are the channel number itself (0..17). */
+        if (i < 20) {
+            chan_list[index][i] = chan;
+        }
+#elif defined(STM32H7)
         adcgrpcfg[index].pcsel |= (1<<chan);
         adcgrpcfg[index].smpr[chan/10] |= ADC_SMPR_SMP_384P5 << (3*(chan%10));
         if (i < 4) {
