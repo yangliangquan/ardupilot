@@ -682,6 +682,15 @@ void CANIface::initOnce(bool enable_irq)
             RCC->APB1ENR1 |=  RCC_APB1ENR1_CAN1EN;
             RCC->APB1RSTR1 |=  RCC_APB1RSTR1_CAN1RST;
             RCC->APB1RSTR1 &= ~RCC_APB1RSTR1_CAN1RST;
+#elif defined(__CH32H417_H)
+            /*
+             * CH32: the WCH CANv1 LLD enables the peripheral clock in
+             * can_lld_start(); only the reset pulse is issued here.  The
+             * RCC reset bits sit at the same positions as the clock-enable
+             * bits (HB1PRSTR vs HB1PCENR).
+             */
+            RCC->HB1PRSTR |=  RCC_HB1Periph_CAN1;
+            RCC->HB1PRSTR &= ~RCC_HB1Periph_CAN1;
 #else
             RCC->APB1ENR  |=  RCC_APB1ENR_CAN1EN;
             RCC->APB1RSTR |=  RCC_APB1RSTR_CAN1RST;
@@ -694,6 +703,11 @@ void CANIface::initOnce(bool enable_irq)
             RCC->APB1RSTR1 |=  RCC_APB1RSTR1_CAN2RST;
             RCC->APB1RSTR1 &= ~RCC_APB1RSTR1_CAN2RST;
             break;
+#elif defined(__CH32H417_H)
+        case 1:
+            RCC->HB1PRSTR |=  RCC_HB1Periph_CAN2;
+            RCC->HB1PRSTR &= ~RCC_HB1Periph_CAN2;
+            break;
 #elif defined(RCC_APB1ENR_CAN2EN)
         case 1:
             RCC->APB1ENR  |=  RCC_APB1ENR_CAN2EN;
@@ -701,11 +715,16 @@ void CANIface::initOnce(bool enable_irq)
             RCC->APB1RSTR &= ~RCC_APB1RSTR_CAN2RST;
             break;
 #endif
-#ifdef RCC_APB1ENR_CAN3EN
+#if defined(RCC_APB1ENR_CAN3EN) || defined(__CH32H417_H)
         case 2:
+#if defined(__CH32H417_H)
+            RCC->HB1PRSTR |=  RCC_HB1Periph_CAN3;
+            RCC->HB1PRSTR &= ~RCC_HB1Periph_CAN3;
+#else
             RCC->APB1ENR  |=  RCC_APB1ENR_CAN3EN;
             RCC->APB1RSTR |=  RCC_APB1RSTR_CAN3RST;
             RCC->APB1RSTR &= ~RCC_APB1RSTR_CAN3RST;
+#endif
             break;
 #endif
         }
@@ -716,6 +735,14 @@ void CANIface::initOnce(bool enable_irq)
      */
     if (!irq_init_ && enable_irq) {
         CriticalSectionLocker lock;
+#if defined(__CH32H417_H)
+        /*
+         * The WCH CANv1 LLD enables the TX/RX0/RX1 vectors and programs
+         * their priorities from CH32H417_CAN_CANn_IRQ_PRIORITY inside
+         * can_lld_start(), so there is nothing to do here.  (The RISC-V
+         * port has no CMSIS nvicEnableVector()/CORTEX_MAX_KERNEL_PRIORITY.)
+         */
+#else
         switch (can_interfaces[self_index_]) {
         case 0:
 #ifdef HAL_CAN_IFACE1_ENABLE
@@ -739,6 +766,7 @@ void CANIface::initOnce(bool enable_irq)
 #endif
             break;
         }
+#endif // __CH32H417_H
         irq_init_ = true;
     }
 }
