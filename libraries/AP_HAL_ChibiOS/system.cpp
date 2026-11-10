@@ -41,7 +41,30 @@ static_assert(sizeof(systime_t) == 2, "expected 16 bit systime_t");
 #elif CH_CFG_ST_RESOLUTION == 32
 static_assert(sizeof(systime_t) == 4, "expected 32 bit systime_t");
 #endif
+#if CH_CFG_INTERVALS_SIZE == 16
+static_assert(sizeof(sysinterval_t) == 2, "expected 16 bit sysinterval_t");
+#elif CH_CFG_INTERVALS_SIZE == 32
+static_assert(sizeof(sysinterval_t) == 4, "expected 32 bit sysinterval_t");
+#elif CH_CFG_INTERVALS_SIZE == 64
+static_assert(sizeof(sysinterval_t) == 8, "expected 64 bit sysinterval_t");
+#endif
+
+/*
+  systime_t and sysinterval_t used to be the same width on every port we
+  build for, but they are two independent settings (CH_CFG_ST_RESOLUTION and
+  CH_CFG_INTERVALS_SIZE).  The CH32H417 port needs them to differ: its free
+  running ST is a 16-bit TIM2..TIM5 counter (CH_CFG_ST_RESOLUTION 16) while
+  ArduPilot timeouts need 32-bit intervals.  ChibiOS supports that
+  combination in tick-less mode - intervals longer than the counter range are
+  re-armed by the virtual timers code (vt_enqueue/VT_MAX_DELAY) - and hrt.c
+  has a CH_CFG_ST_RESOLUTION == 16 branch that folds the 16-bit counter into
+  a 32-bit microsecond base.  Only the raw counter wraps early (65.5ms at
+  1MHz); every wrap-safe API (chVTTimeElapsedSinceX, sysinterval_t) is
+  unaffected.
+ */
+#if CH_CFG_ST_RESOLUTION == CH_CFG_INTERVALS_SIZE
 static_assert(sizeof(systime_t) == sizeof(sysinterval_t), "expected systime_t same size as sysinterval_t");
+#endif
 
 #if defined(HAL_EXPECTED_SYSCLOCK)
 #ifdef STM32_SYS_CK
@@ -92,7 +115,17 @@ extern "C"
 #define MemManage_Handler AP_MemManage_Handler
 #endif
 
-#if !AP_CRASHDUMP_ENABLED
+#if defined(__CH32H417_H)
+/*
+  The legacy fault handlers below are Cortex-M specific: they read the
+  stacked exception frame through PSP/IPSR, decode SCB->CFSR/HFSR/MMFAR and
+  trip on Cortex-M exception numbers.  None of that exists on the QingKe V5F
+  core, which traps through mtvec/ECLIC instead.  The CH32H417 board also has
+  no crash dump backend (HAL_NO_FLASH_SUPPORT, no RTC backup registers), so
+  the block is compiled out rather than ported bit for bit; a real RISC-V
+  trap handler is a separate piece of porting work.
+ */
+#elif !AP_CRASHDUMP_ENABLED
 // do legacy hardfault handling
 void HardFault_Handler(void);
 void HardFault_Handler(void) {
