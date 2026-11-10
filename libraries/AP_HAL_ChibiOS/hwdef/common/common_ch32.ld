@@ -15,7 +15,7 @@
  *   instram       : ITCM, 0x200A0000, 128K
  *                   -> hot code explicitly placed in .itcm* (copied at boot)
  *   flashram      : upper shared SRAM, 0x20120000, 384K
- *                   -> larger hot code in .sram*/.ramfunc* (copied at boot)
+ *                   -> larger hot code in .sram* / .ramfunc* (copied at boot)
  *   ram0          : DTCM, 0x200C0200 (first 512B of DTCM are hardware owned)
  *                   -> .data/.sdata, .bss/.sbss, heap, all stacks
  *
