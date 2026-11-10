@@ -2688,6 +2688,18 @@ Please run: Tools/scripts/build_bootloaders.py %s
 
 ''')
 
+        if self.get_mcu_config('ARCH', False) == 'riscv':
+            # The STM32-name compatibility layer (types, CMSIS bit names,
+            # DMA/TIM API names) lives in a checked-in header rather than
+            # being emitted inline here: hwdef.h is only generated at
+            # configure time, so inline macros silently went stale whenever
+            # this script was edited and ./waf configure was not re-run.
+            # hwdef/common/ch32_stm32_compat.h is on the include path of
+            # every translation unit (hwdef/common is, for chconf.h).
+            f.write('''
+#include "ch32_stm32_compat.h"
+''')
+
         if self.signed_fw:
             f.write('''
 #define AP_SIGNED_FIRMWARE 1
@@ -2732,6 +2744,35 @@ Please run: Tools/scripts/build_bootloaders.py %s
 ''')
 
         self.write_peripheral_enable(f)
+
+        if self.get_mcu_config('ARCH', False) == 'riscv':
+            # SPIDevice.cpp tests STM32_SPI_USE_SPIx inside #if expressions,
+            # and -Werror=undef makes an undefined name a hard error.  On
+            # STM32 the unused buses are defined FALSE by the board mcuconf.h;
+            # CH32 has no STM32 mcuconf, so provide the fallbacks here, after
+            # write_peripheral_enable() has already defined TRUE for the
+            # buses declared in hwdef.dat (the #ifndef skips those).
+            f.write('''
+/* STM32 SPI bus fallbacks for the CH32H417 RISC-V port (unused buses). */
+#ifndef STM32_SPI_USE_SPI1
+#define STM32_SPI_USE_SPI1                  FALSE
+#endif
+#ifndef STM32_SPI_USE_SPI2
+#define STM32_SPI_USE_SPI2                  FALSE
+#endif
+#ifndef STM32_SPI_USE_SPI3
+#define STM32_SPI_USE_SPI3                  FALSE
+#endif
+#ifndef STM32_SPI_USE_SPI4
+#define STM32_SPI_USE_SPI4                  FALSE
+#endif
+#ifndef STM32_SPI_USE_SPI5
+#define STM32_SPI_USE_SPI5                  FALSE
+#endif
+#ifndef STM32_SPI_USE_SPI6
+#define STM32_SPI_USE_SPI6                  FALSE
+#endif
+''')
 
         if self.processed_defaults_filepath:
             self.write_define(f, 'AP_PARAM_DEFAULTS_FILE_PARSING_ENABLED', 1)

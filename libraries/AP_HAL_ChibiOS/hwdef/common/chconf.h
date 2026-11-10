@@ -30,6 +30,21 @@
 
 #include "hwdef.h"
 
+/*
+ * CH32H417 (RISC-V) STM32-name compatibility layer.
+ *
+ * The generated hwdef.h also includes this, but hwdef.h is only written
+ * during `./waf configure`, so an out-of-date hwdef.h would silently hide
+ * edits to the compatibility layer.  Including it here as well (it has an
+ * include guard) makes the layer independent of when hwdef.h was last
+ * regenerated.  CH32H417xx is emitted by hwdef.h from the MCU line and has
+ * been present since the port was created, so the test itself is safe to
+ * use on a stale hwdef.h.
+ */
+#if defined(CH32H417xx)
+#include "ch32_stm32_compat.h"
+#endif
+
 #define _CHIBIOS_RT_CONF_
 #define _CHIBIOS_RT_CONF_VER_7_0_
 #define _CHIBIOS_HAL_CONF_VER_9_1_
