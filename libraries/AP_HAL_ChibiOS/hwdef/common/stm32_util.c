@@ -460,6 +460,117 @@ void palLineSetPushPull(ioline_t line, enum PalPushPull pp)
 
 #endif // F7, H7, F4
 
+#if defined(CH32H417)
+/*
+  CH32 (F1-style GPIO) versions of the pin-mode helpers above.
+
+  The WCH PAL LLD encodes iomode_t the same way its set_pad_mode() does:
+  the low bits are the generic PAL_MODE_* values (INPUT=2, PULLUP=3,
+  PULLDOWN=4, ANALOG=5, OUT_PP=6, OUT_OD=7) and the AF modes are
+  (0x100 | (af<<4)) = AF push-pull and (0x200 | (af<<4)) = AF open-drain.
+  The hardware state is the 4-bit MODE/CNF field in CFGLR/CFGHR plus the
+  per-pin AF number in AFIO->GPIOx_AFLR/AFHR, so both helpers below
+  round-trip through stm32_set_line_mode()/palSetLineMode().
+*/
+
+// read the per-pin AF number for pad (ports A..F only, 0 otherwise)
+static uint8_t ch32_af_get(ioportid_t port, uint8_t pad)
+{
+    volatile uint32_t *afr = NULL;
+    if (port == GPIOA) {
+        afr = &AFIO->GPIOA_AFLR;
+    } else if (port == GPIOB) {
+        afr = &AFIO->GPIOB_AFLR;
+    } else if (port == GPIOC) {
+        afr = &AFIO->GPIOC_AFLR;
+    } else if (port == GPIOD) {
+        afr = &AFIO->GPIOD_AFLR;
+    } else if (port == GPIOE) {
+        afr = &AFIO->GPIOE_AFLR;
+    } else if (port == GPIOF) {
+        afr = &AFIO->GPIOF_AFLR;
+    }
+    if (afr == NULL) {
+        return 0;
+    }
+    // AFHR directly follows AFLR in AFIO_TypeDef
+    if (pad >= 8) {
+        afr++;
+    }
+    return (*afr >> ((pad & 7) * 4)) & 0xF;
+}
+
+iomode_t palReadLineMode(ioline_t line)
+{
+    ioportid_t port = PAL_PORT(line);
+    uint8_t pad = PAL_PAD(line);
+    iomode_t ret = PAL_MODE_INPUT;
+    const syssts_t sts = chSysGetStatusAndLockX();
+    uint32_t f;
+    if (pad < 8) {
+        f = (port->CFGLR >> (pad*4)) & 0xF;
+    } else {
+        f = (port->CFGHR >> ((pad-8)*4)) & 0xF;
+    }
+    const uint32_t mode = f & 3;
+    const uint32_t cnf = (f >> 2) & 3;
+    if (mode != 0) {
+        if (cnf == 0) {
+            ret = PAL_MODE_OUTPUT_PUSHPULL;
+        } else if (cnf == 1) {
+            ret = PAL_MODE_OUTPUT_OPENDRAIN;
+        } else {
+            // CNF=2: AF push-pull, CNF=3: AF open-drain
+            const uint8_t af = ch32_af_get(port, pad);
+            ret = (cnf == 2 ? (iomode_t)0x100 : (iomode_t)0x200) | ((iomode_t)af << 4);
+        }
+    } else {
+        if (cnf == 0) {
+            ret = PAL_MODE_INPUT_ANALOG;
+        } else if (cnf == 1) {
+            ret = PAL_MODE_INPUT;       // floating
+        } else if (cnf == 2) {
+            // input with pull; direction comes from the output latch
+            ret = ((port->OUTDR >> pad) & 1) ? PAL_MODE_INPUT_PULLUP : PAL_MODE_INPUT_PULLDOWN;
+        } else {
+            ret = PAL_MODE_INPUT;       // CNF=3 is reserved, treat as floating
+        }
+    }
+    chSysRestoreStatusX(sts);
+    return ret;
+}
+
+/*
+  set pin as pullup, pulldown or floating.  F1-style GPIO has no PUPDR:
+  an input pull is CNF=10/MODE=00 with the direction in the output latch
+  (the vendor GPIO_Init() drives BSHR/BCR for exactly this), so the CNF
+  field and ODR bit are both set here.
+*/
+void palLineSetPushPull(ioline_t line, enum PalPushPull pp)
+{
+    ioportid_t port = PAL_PORT(line);
+    uint8_t pad = PAL_PAD(line);
+    volatile uint32_t *cfg = (pad < 8) ? &port->CFGLR : &port->CFGHR;
+    const uint32_t shift = (pad & 7) * 4;
+    const syssts_t sts = chSysGetStatusAndLockX();
+    uint32_t v = *cfg;
+    v &= ~(0xFU << shift);
+    if (pp == PAL_PUSHPULL_NOPULL) {
+        v |= 0x4U << shift;    // MODE=00, CNF=01: floating input
+    } else {
+        v |= 0x8U << shift;    // MODE=00, CNF=10: input with pull
+    }
+    *cfg = v;
+    if (pp == PAL_PUSHPULL_PULLUP) {
+        port->BSHR = 1U << pad;        // atomic set: pull-up
+    } else if (pp == PAL_PUSHPULL_PULLDOWN) {
+        port->BCR = 1U << pad;         // atomic clear: pull-down
+    }
+    chSysRestoreStatusX(sts);
+}
+
+#endif // CH32H417
+
 /*
   set the mode of a pin. palSetLineMode() does an unlocked
   read-modify-write of the port mode registers, which can corrupt the
