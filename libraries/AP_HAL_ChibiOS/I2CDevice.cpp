@@ -248,6 +248,16 @@ I2CDeviceManager::I2CDeviceManager(void)
             businfo[i].i2ccfg.timingr = HAL_I2C_G4_400_TIMINGR;
             businfo[i].busclock = 400000;
         }
+#elif defined(__CH32H417_H)
+        /*
+         * The WCH I2Cv1 LLD takes its bus clock from the compile-time
+         * CH32H417_I2C1_CLOCK_SPEED (100 kHz default) and its I2CConfig
+         * carries no op_mode/clock_speed/duty_cycle fields, so there is
+         * nothing to program here.  HAL_I2C_MAX_CLOCK is 100 kHz on this
+         * board, matching what the LLD already sets up.  Extending
+         * I2CConfig + i2c_lld_start() to consume clock_speed is the
+         * follow-up needed for runtime 400 kHz support.
+         */
 #else // F1 or F4
         businfo[i].i2ccfg.op_mode = OPMODE_I2C;
         businfo[i].i2ccfg.clock_speed = businfo[i].busclock;
@@ -277,6 +287,13 @@ I2CDevice::I2CDevice(uint8_t busnum, uint8_t address, uint32_t bus_clock, bool u
             bus.i2ccfg.timingr = HAL_I2C_F7_100_TIMINGR;
             bus.busclock = 100000;
         }
+#elif defined(__CH32H417_H)
+        /*
+         * No clock/duty fields in the WCH I2Cv1 config (see the bus
+         * initialisation above); keep ArduPilot's bookkeeping so the
+         * device-timeout maths still sees the requested speed.
+         */
+        bus.busclock = bus_clock;
 #else
         bus.i2ccfg.clock_speed = bus_clock;
         bus.busclock = bus_clock;
@@ -325,6 +342,12 @@ bool I2CDevice::transfer(const uint8_t *send, uint32_t send_len,
     } else {
         bus.i2ccfg.cr1 &= ~I2C_CR1_SMBHEN;
     }
+#elif defined(__CH32H417_H)
+    /*
+     * The WCH I2Cv1 LLD has no op_mode field and always drives plain
+     * 7-bit I2C, so an SMBUS request degrades to normal I2C here.  Revisit
+     * if the LLD grows SMBUS host support.
+     */
 #else
     if (_use_smbus) {
         bus.i2ccfg.op_mode = OPMODE_SMBUS_HOST;
