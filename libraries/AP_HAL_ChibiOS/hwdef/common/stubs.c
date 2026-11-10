@@ -81,6 +81,28 @@
 #include "hal.h"
 #endif
 
+#if defined(__CH32H417_H)
+/*
+  ArduPilot links with -Wl,--wrap,setjmp (Tools/ardupilotwaf/chibios.py) so
+  that an accidental direct setjmp() in flight code turns into a link error.
+  On Cortex-M the Lua scripting engine never reaches libc's setjmp:
+  AP_HAL/ap_setjmp.h provides its own naked ap_setjmp()/ap_longjmp() because
+  the newlib shipped with ARM GCC 10.3.1 does not save the callee-saved FP
+  registers.  On RISC-V that is not needed - newlib's jmp_buf is sized for
+  the FP registers (_JBLEN = 14 longs + 12 doubles on rv32) - so ap_setjmp()
+  expands to plain setjmp() and the wrap has to be satisfied by forwarding
+  to the real implementation.
+ */
+#include <setjmp.h>
+
+int __real_setjmp(jmp_buf env);
+
+int __wrap_setjmp(jmp_buf env)
+{
+    return __real_setjmp(env);
+}
+#endif // __CH32H417_H
+
 uint8_t _before_main = 1;
 
 /***************************************************************************/
