@@ -2189,6 +2189,14 @@ INCLUDE common.ld
         bidir = None
         up_shared = None
         pwm_out = []
+        # STM32's PWMConfig carries two extra initialisers after channels[]
+        # (CR2 and BDTR init values).  The WCH TIMv1 PWMConfig has only the
+        # mandatory fields, so a '0, 0' tail would be "too many
+        # initializers".
+        if self.get_mcu_config('ARCH', False) == 'riscv':
+            pwm_cfg_tail = ''
+        else:
+            pwm_cfg_tail = '0, 0'
         # start with the ordered list from the dma resolver
         pwm_timers = ordered_timers
         for label in self.bylabel.keys():
@@ -2277,13 +2285,13 @@ INCLUDE common.ld
              {%s, NULL}, \\
              {%s, NULL}, \\
              {%s, NULL}  \\
-            }, \\
-            0, 0 \\
+            }, %s \\
           }, \\
           &PWMD%u /* PWMDriver* */ \\
         }\n''' %
                     (chan-1, pwm_clock, period, chan_mode[0],
-                     chan_mode[1], chan_mode[2], chan_mode[3], n))
+                     chan_mode[1], chan_mode[2], chan_mode[3],
+                     pwm_cfg_tail, n))
         else:
             f.write('\n')
             f.write('// No Alarm output pin defined\n')
@@ -2378,7 +2386,7 @@ INCLUDE common.ld
            {%s, NULL}, \\
            {%s, NULL}, \\
            {%s, NULL}  \\
-          }, 0, 0}, &PWMD%u, %u, \\
+          }, %s}, &PWMD%u, %u, \\
           HAL_PWM%u_DMA_CONFIG, \\%s
           { %u, %u, %u, %u }, \\
           { %s, %s, %s, %s }}\n''' %
@@ -2386,7 +2394,7 @@ INCLUDE common.ld
                      chan_list[0], chan_list[1], chan_list[2], chan_list[3],
                      pwm_clock, period,
                      chan_mode[0], chan_mode[1], chan_mode[2], chan_mode[3],
-                     n, n, n, hal_icu_cfg,
+                     pwm_cfg_tail, n, n, n, hal_icu_cfg,
                      alt_functions[0], alt_functions[1], alt_functions[2], alt_functions[3],
                      pal_lines[0], pal_lines[1], pal_lines[2], pal_lines[3]))
         f.write('#define HAL_PWM_GROUPS %s\n\n' % ','.join(groups))
