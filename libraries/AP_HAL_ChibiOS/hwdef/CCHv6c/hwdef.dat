@@ -44,6 +44,17 @@ define HAL_NO_FLASH_SUPPORT 1
 # RISC-V port of the DJ library is available
 define HAL_GYROFFT_ENABLED 0
 
+# The QingKe V5F has a single-precision hardware FPU (rv32imafc).  __FPU_PRESENT
+# is an attribute of the chip, so it is defined in hwdef/common/
+# ch32_stm32_compat.h rather than here: hwdef.dat only feeds the application
+# image, and the bootloader build (hwdef-bl.dat) needs it as well.
+
+# GCS_CrashTrigger.cpp's developer-only "interrupt storm" test writes
+# STM32H7 EXTI registers (SWIER1/RTSR1/FTSR1/IMR1/EMR1).  CH32's EXTI
+# uses a different register set (SWIEVR/RTENR/FTENR/INTENR/INTFR), and
+# this board has crash dumps disabled anyway, so don't build that test.
+define AP_MAVLINK_FAILURE_CREATION_ENABLED 0
+
 # ChibiOS system timer: adapt-417's hal_st_lld only accepts TIM2..TIM5.
 # TIM2 is free on this board (PWM uses TIM1/3/4/5).  The define lives in
 # hwdef/common/ch32h417_mcuconf.h (CH32H417_ST_USE_TIMER 2).
