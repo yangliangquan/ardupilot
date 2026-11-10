@@ -74,6 +74,23 @@ static const struct SPIDriverInfo {
 // device list comes from hwdef.dat
 ChibiOS::SPIDesc SPIDeviceManager::device_table[] = { HAL_SPI_DEVICE_LIST };
 
+/*
+  ChibiOS selects one SPI driver class per port: the v2 class (used by the
+  CH32 port, via HAL_LLD_SELECT_SPI_V2) wakes waiters through sync_transfer
+  while the v1 class used by the STM32 boards uses thread.  Both are
+  resumed from the transfer-complete ISR, so this just hides the field
+  name.  Must be called with the system locked (like the raw calls it
+  replaces).
+ */
+static inline msg_t spi_wait_completion(SPIDriver *driver, sysinterval_t timeout)
+{
+#if defined(HAL_LLD_SELECT_SPI_V2)
+    return osalThreadSuspendTimeoutS(&driver->sync_transfer, timeout);
+#else
+    return osalThreadSuspendTimeoutS(&driver->thread, timeout);
+#endif
+}
+
 SPIBus::SPIBus(uint8_t _bus) :
     DeviceBus(APM_SPI_PRIORITY),
     bus(_bus)
@@ -229,7 +246,7 @@ bool SPIDevice::do_transfer(const uint8_t *send, uint8_t *recv, uint32_t len)
     // expect this timeout to trigger unless there is a severe MCU
     // error
     const uint32_t timeout_us = 20000U + len * 32U;
-    msg_t msg = osalThreadSuspendTimeoutS(&spi_devices[device_desc.bus].driver->thread, TIME_US2I(timeout_us));
+    msg_t msg = spi_wait_completion(spi_devices[device_desc.bus].driver, TIME_US2I(timeout_us));
     osalSysUnlock();
     if (msg == MSG_TIMEOUT) {
         ret = false;
@@ -257,7 +274,7 @@ bool SPIDevice::clock_pulse(uint32_t n)
         acquire_bus(true, true);
         osalSysLock();
         spiStartIgnoreI(spi_devices[device_desc.bus].driver, n);
-        msg = osalThreadSuspendTimeoutS(&spi_devices[device_desc.bus].driver->thread, TIME_US2I(timeout_us));
+        msg = spi_wait_completion(spi_devices[device_desc.bus].driver, TIME_US2I(timeout_us));
         osalSysUnlock();
         if (msg == MSG_TIMEOUT) {
             spiAbort(spi_devices[device_desc.bus].driver);
@@ -270,7 +287,7 @@ bool SPIDevice::clock_pulse(uint32_t n)
         }
         osalSysLock();
         spiStartIgnoreI(spi_devices[device_desc.bus].driver, n);
-        msg = osalThreadSuspendTimeoutS(&spi_devices[device_desc.bus].driver->thread, TIME_US2I(timeout_us));
+        msg = spi_wait_completion(spi_devices[device_desc.bus].driver, TIME_US2I(timeout_us));
         osalSysUnlock();
         if (msg == MSG_TIMEOUT) {
             spiAbort(spi_devices[device_desc.bus].driver);
@@ -281,6 +298,13 @@ bool SPIDevice::clock_pulse(uint32_t n)
 
 uint32_t SPIDevice::derive_freq_flag_bus(uint8_t busid, uint32_t _frequency)
 {
+#if defined(__CH32H417_H)
+    /*
+     * The WCH SPI v2 config takes the requested clock in Hz and divides it
+     * inside the LLD (clock_freq), so no BR bit fields are needed here.
+     */
+    return _frequency;
+#else
     uint32_t spi_clock_freq = SPI1_CLOCK;
     if (busid > 0 && uint8_t(busid-1) < ARRAY_SIZE(bus_clocks)) {
         spi_clock_freq = bus_clocks[busid-1] / 2;
@@ -301,6 +325,7 @@ uint32_t SPIDevice::derive_freq_flag_bus(uint8_t busid, uint32_t _frequency)
 #else
     return i * SPI_CR1_BR_0;
 #endif
+#endif // __CH32H417_H
 }
 
 uint32_t SPIDevice::derive_freq_flag(uint32_t _frequency)
@@ -417,6 +442,14 @@ void SPIBus::start_peripheral(void)
 /* restore the SPI clock without using RTOS or DMA services */
 void SPIBus::crashdump_prepare_peripheral(void)
 {
+#if defined(__CH32H417_H)
+    /*
+     * Only the crash-dump-over-SD writer calls this, and CrashDump_SD.cpp is
+     * compiled for STM32H7/L4PLUS only.  The WCH SPI LLD enables the
+     * peripheral clock itself in spi_lld_start(), so there is no
+     * rccEnableSPIx() equivalent to call here.
+     */
+#else
     const auto &sbus = spi_devices[bus];
 #if STM32_SPI_USE_SPI1
     if (sbus.driver == &SPID1) {
@@ -448,6 +481,7 @@ void SPIBus::crashdump_prepare_peripheral(void)
         rccEnableSPI6(true);
     }
 #endif
+#endif // __CH32H417_H
 }
 
 /* restore SCK after the crash dump path has configured the SPI peripheral */
@@ -484,6 +518,21 @@ bool SPIDevice::acquire_bus(bool set, bool skip_cs)
         spiAcquireBus(spi_devices[device_desc.bus].driver);              /* Acquire ownership of the bus.    */
         bus.spicfg.ssport = PAL_PORT(device_desc.pal_line);
         bus.spicfg.sspad = PAL_PAD(device_desc.pal_line);
+#if defined(__CH32H417_H)
+        /*
+         * The CH32 port uses the SPI v2 driver class: the completion
+         * callback is data_cb (plus error_cb) and the LLD takes the frame
+         * format and the requested clock directly (clock_freq in Hz, mode
+         * 0..3, 8-bit frames, MSB first).
+         */
+        bus.spicfg.circular = false;
+        bus.spicfg.data_cb = nullptr;
+        bus.spicfg.error_cb = nullptr;
+        bus.spicfg.clock_freq = freq_flag;
+        bus.spicfg.mode = device_desc.mode;
+        bus.spicfg.databits = 8;
+        bus.spicfg.lsb_first = false;
+#else
         bus.spicfg.end_cb = nullptr;
 #if defined(STM32H7)
         bus.spicfg.cfg1 = freq_flag;
@@ -499,6 +548,7 @@ bool SPIDevice::acquire_bus(bool set, bool skip_cs)
         bus.spicfg.cr1 = (uint16_t)(freq_flag | device_desc.mode);
         bus.spicfg.cr2 = 0;
 #endif
+#endif // __CH32H417_H
         bus.spi_mode = device_desc.mode;
         bus.stop_peripheral();
         bus.start_peripheral();
