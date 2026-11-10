@@ -23,6 +23,12 @@
 
 #include "shared_dma.h"
 
+#if defined(__CH32H417_H)
+/* stm32_util.h supplies the stm32_tim_t alias (vendor TIM_TypeDef) used by
+   the bdshot ICU declarations below. */
+#include "hwdef/common/stm32_util.h"
+#endif
+
 #if HAL_USE_PWM == TRUE
 
 #if defined(STM32F1)

@@ -28,6 +28,26 @@
 extern AP_IOMCU iomcu;
 #endif
 
+#if defined(__CH32H417_H)
+/*
+ * CH32 TIM register-name aliases for the STM32-style member accesses in
+ * this file (F1-style renames, same bit layouts).  File-local: all are
+ * #undef'd at the end of this file.  tim->CCR has no alias - the CH32
+ * CCR-equivalents are four separate CHxCVR registers (see the CH32 branch
+ * in bdshot_prepare_dma below).
+ */
+#define DMAR DMAADR
+#define DCR  DMACFGR
+#define SR   INTFR
+#define EGR  SWEVGR
+#define DIER DMAINTENR
+#define CR1  CTLR1
+#define CR2  CTLR2
+#define ARR  ATRLR
+#define CCMR1 CHCTLR1
+#define CCMR2 CHCTLR2
+#endif // __CH32H417_H
+
 #if defined(IOMCU_FW)
 #undef INTERNAL_ERROR
 #define INTERNAL_ERROR(x) do {} while (0)
@@ -374,7 +394,13 @@ void RCOutput::bdshot_receive_pulses_DMAR(pwm_group* group)
 
     // setup for transfers. 0x0D is the register
     // address offset of the CCR registers in the timer peripheral
+#if defined(__CH32H417_H)
+    // CH32: CH1CVR..CH4CVR sit at consecutive 32-bit word offsets, the same
+    // unit the DMACFGR.DBA base address is counted in
+    const uint8_t ccr_ofs = offsetof(stm32_tim_t, CH1CVR_32)/4 + group->bdshot.telem_tim_ch[curr_ch];
+#else
     const uint8_t ccr_ofs = offsetof(stm32_tim_t, CCR)/4 + group->bdshot.telem_tim_ch[curr_ch];
+#endif
     group->pwm_drv->tim->DCR = STM32_TIM_DCR_DBA(ccr_ofs) | STM32_TIM_DCR_DBL(0);
 
     // Start Timer
@@ -886,3 +912,17 @@ uint32_t RCOutput::read_erpm(uint16_t* erpm, uint8_t len)
 }
 
 #endif // HAL_WITH_BIDIR_DSHOT
+
+#if defined(__CH32H417_H)
+// end of the file-local CH32 TIM member-name aliases
+#undef DMAR
+#undef DCR
+#undef SR
+#undef EGR
+#undef DIER
+#undef CR1
+#undef CR2
+#undef ARR
+#undef CCMR1
+#undef CCMR2
+#endif // __CH32H417_H
