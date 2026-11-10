@@ -61,6 +61,15 @@ mcu = {
         'HAL_USE_HW_RNG' : 'TRUE',
     },
 
+    # The CH32H417 routes every peripheral request through its DMAMUX: any
+    # request can be fed into any of the 16 DMA channels (RM table 10-2).
+    # Setting DMA_Map to None makes dma_resolver.py take its generic
+    # generate_DMAMUX_map() path, which allocates (controller, stream) pairs
+    # 1..2 / 0..7; the hwdef.h compatibility block re-maps that encoding onto
+    # the CH32 linear channel index 0..15 and maps the resolver's
+    # STM32_DMAMUX1_* request names onto the CH32 1-based request numbers.
+    'DMA_Map' : None,
+
     # ---- flash windows ----
     # Internal CodeFlash XIP window.  V3F owns 0x00000000..0x0000FFFF,
     # the V5F bootloader starts at 0x00010000 (zero wait states).
