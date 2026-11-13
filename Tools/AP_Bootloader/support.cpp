@@ -62,6 +62,13 @@ int16_t cin(unsigned timeout_ms)
     return -1;
 }
 
+#if AP_BOOTLOADER_BULK_RX
+bool cin_bytes(uint8_t *data, uint8_t len, unsigned timeout_ms)
+{
+    return cin_data(data, len, timeout_ms);
+}
+#endif
+
 int cin_word(uint32_t *wp, unsigned timeout_ms)
 {
     if (cin_data((uint8_t *)wp, 4, timeout_ms)) {

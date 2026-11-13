@@ -817,6 +817,11 @@ bootloader(unsigned timeout)
                 goto cmd_bad;
             }
 
+#if AP_BOOTLOADER_BULK_RX
+            if (!cin_bytes(flash_buffer.c, arg, 1000)) {
+                goto cmd_bad;
+            }
+#else
             for (int i = 0; i < arg; i++) {
                 c = cin(1000);
 
@@ -826,6 +831,7 @@ bootloader(unsigned timeout)
 
                 flash_buffer.c[i] = c;
             }
+#endif
 
             if (!wait_for_eoc(200)) {
                 goto cmd_bad;
@@ -860,7 +866,12 @@ bootloader(unsigned timeout)
                 offset += programming;
                 size -= programming;
                 while (true) {
+#if AP_BOOTLOADER_BULK_RX
+                    const uint64_t now_us = AP_HAL::micros64();
+                    if (now_us > (start_time_us+delay_us)) {
+#else
                     if (AP_HAL::micros64() > (start_time_us+delay_us)) {
+#endif
                         if (!ext_flash.is_device_busy()) {
                             // uprintf("flash program Successful, elapsed %ld us\n", uint32_t(AP_HAL::micros64() - start_time_us));
                             break;
@@ -868,6 +879,13 @@ bootloader(unsigned timeout)
                             // uprintf("Typical flash program time reached, Still Busy?!\n");
                         }
                     }
+#if AP_BOOTLOADER_BULK_RX
+                    /* start_program_offset() fills timeout_us but this loop
+                       never checked it, so a stuck busy bit spun forever. */
+                    if (timeout_us != 0 && now_us > (start_time_us+timeout_us)) {
+                        goto cmd_fail;
+                    }
+#endif
                 }
             }
 #endif
@@ -909,6 +927,11 @@ bootloader(unsigned timeout)
                 goto cmd_bad;
             }
 
+#if AP_BOOTLOADER_BULK_RX
+            if (!cin_bytes(flash_buffer.c, arg, 1000)) {
+                goto cmd_bad;
+            }
+#else
             for (int i = 0; i < arg; i++) {
                 c = cin(1000);
 
@@ -918,6 +941,7 @@ bootloader(unsigned timeout)
 
                 flash_buffer.c[i] = c;
             }
+#endif
 
             if (!wait_for_eoc(200)) {
                 goto cmd_bad;

@@ -2,6 +2,18 @@
 
 #include <AP_HAL_ChibiOS/AP_HAL_ChibiOS.h>
 
+/*
+  The CH32H417 ChibiOS port makes every chnReadTimeout() call expensive
+  (global MIE lock/unlock plus an emulated SOF timer), so on that target the
+  bootloader reads a whole command payload in a single channel operation.
+  All other targets keep the original byte-at-a-time loop.
+*/
+#if defined(__CH32H417_H) || defined(CH32H417)
+#define AP_BOOTLOADER_BULK_RX 1
+#else
+#define AP_BOOTLOADER_BULK_RX 0
+#endif
+
 #define LED_ACTIVITY	1
 #define LED_BOOTLOADER	2
 
@@ -21,6 +33,10 @@ extern struct boardinfo board_info;
 
 void init_uarts(void);
 int16_t cin(unsigned timeout_ms);
+#if AP_BOOTLOADER_BULK_RX
+/* read a whole command payload in one channel operation */
+bool cin_bytes(uint8_t *data, uint8_t len, unsigned timeout_ms);
+#endif
 int cin_word(uint32_t *wp, unsigned timeout_ms);
 void cout(const uint8_t *data, uint32_t len);
 void port_setbaud(uint32_t baudrate);
