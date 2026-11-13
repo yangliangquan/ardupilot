@@ -40,6 +40,13 @@
 // The CH32H417 RISC-V port has its own register-level configuration; none
 // of the STM32 blocks below apply to it.
 #if defined(CH32H417)
+#ifdef HAL_CHIBIOS_ENABLE_ASSERTS
+#define STM32_DMA_ERROR_HOOK(devp) osalSysHalt("DMA failure")
+#else
+#define STM32_DMA_ERROR_HOOK(devp)                                             \
+  do {                                                                         \
+  } while (0)
+#endif
 #include "ch32h417_mcuconf.h"
 #else
 
