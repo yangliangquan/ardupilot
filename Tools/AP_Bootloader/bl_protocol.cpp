@@ -380,13 +380,37 @@ jump_to_app()
     // disable all interrupt sources
     port_disable();
 
-#if !defined(CH32H417)
-    /* switch exception handlers to the application */
-    *(volatile uint32_t *)SCB_VTOR = APP_START_ADDRESS;
-#else
+#if defined(CH32H417)
+    /*
+     * QingKe V5F (PFIC at 0xE000E000): the bootloader has enabled
+     * interrupts for USB FS (SDU1), SysTick, and possibly other
+     * peripherals via NVIC_EnableIRQ().  port_disable() above only
+     * clears mstatus.MIE (global gate); the per-source enable bits in
+     * PFIC->IENR[] and any pending flags in PFIC->IPR[] survive across
+     * the handover.  If the app opens MIE before it has re-programmed
+     * the PFIC itself, those stale interrupts fire and jump through
+     * the app's mtvec before the ChibiOS kernel data structures
+     * (currcore, ch_system, ...) are set up.  Blank the entire PFIC
+     * here so the app starts from a cold interrupt controller.
+     */
+    {
+        /* core_riscv.h maps PFIC to 0xE000E000 and defines PFIC_Type.
+           IRER[n] = 1 disables IRQ(32*n + bit), IPRR[n] = 1 clears pending. */
+        volatile uint32_t *irer = (volatile uint32_t *)0xE000E180;  /* offset 0x180: IRER[0] */
+        volatile uint32_t *iprr = (volatile uint32_t *)0xE000E280;  /* offset 0x280: IPRR[0] */
+        for (unsigned i = 0; i < 8; i++) {
+            irer[i] = 0xFFFFFFFFU;
+            iprr[i] = 0xFFFFFFFFU;
+        }
+        __asm volatile("fence.i");
+    }
+
     /* No SCB->VTOR on the QingKe V5F: the application's crt0 loads mtvec
        from its own _vector_base symbol before it enables interrupts, so
        there is nothing for the bootloader to point at the app here. */
+#else
+    /* switch exception handlers to the application */
+    *(volatile uint32_t *)SCB_VTOR = APP_START_ADDRESS;
 #endif
 
     /* extract the stack and entrypoint from the app vector table and go */
