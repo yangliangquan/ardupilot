@@ -22,6 +22,13 @@
 #include "watchdog.h"
 
 #if defined(CH32H417)
+/* PFIC at 0xE000E000: IRER[8] at offset 0x180 disables IRQs,
+   IPRR[8] at offset 0x280 clears pending flags. */
+#define CH32_PFIC_IRER_BASE   0xE000E180U
+#define CH32_PFIC_IPRR_BASE   0xE000E280U
+#endif
+
+#if defined(CH32H417)
 
 /*
  * Whether the clock tree may be re-programmed from __early_init().
@@ -229,6 +236,23 @@ static void ch32_gpio_init(void)
    lives in flash either way. */
 void __early_init(void)
 {
+    /*
+     * Blank the PFIC on entry as a safety net in case a bootloader
+     * upgrade forgets.  port_disable() + PFIC clear is the
+     * responsibility of the bootloader before jumping, but doing it
+     * here costs nothing (mstatus.MIE is already clear from crt0) and
+     * protects against stale bootloader firmware.
+     */
+    {
+        volatile uint32_t *irer = (volatile uint32_t *)CH32_PFIC_IRER_BASE;
+        volatile uint32_t *iprr = (volatile uint32_t *)CH32_PFIC_IPRR_BASE;
+        for (unsigned i = 0; i < 8; i++) {
+            irer[i] = 0xFFFFFFFFU;
+            iprr[i] = 0xFFFFFFFFU;
+        }
+        __asm volatile("fence.i");
+    }
+
     ch32_gpio_clock_enable();
     ch32h417_clock_init();
 }
