@@ -23,6 +23,27 @@
 
 #if defined(CH32H417)
 
+/*
+ * Whether the clock tree may be re-programmed from __early_init().
+ *
+ * The flight image executes in place from the QSPI2 XIP window, so its
+ * clock tree must be left exactly as the V3F stub / bootloader configured
+ * it (HAL_XIP_ENABLED is TRUE for that image).  The bootloader itself runs
+ * from internal CodeFlash, where ch32h417_clock_init() is both safe and
+ * necessary: it builds HSE->PLL->SYSCLK/HCLK before hal_lld_init() checks
+ * the frequencies.  HAL_FORCE_CLOCK_INIT is the escape hatch for an XIP
+ * image whose V3F stub does not set up the tree.
+ *
+ * Note hwdef-bl.dat does not emit HAL_XIP_ENABLED at all, hence the
+ * defined() first (short-circuited) term - a bare #if !HAL_XIP_ENABLED
+ * would trip -Werror=undef in the bootloader build.
+ */
+#if defined(HAL_XIP_ENABLED) && HAL_XIP_ENABLED && !defined(HAL_FORCE_CLOCK_INIT)
+#define CH32_SKIP_CLOCK_INIT 1
+#else
+#define CH32_SKIP_CLOCK_INIT 0
+#endif
+
 typedef struct {
     GPIO_TypeDef      *gpio;
     volatile uint32_t *aflr;
@@ -65,9 +86,51 @@ static void ch32_gpio_clock_enable(void)
                           ENABLE);
 }
 
-/* Apply the whole hwdef pin table.  Keeping the QSPI2 pins configured here
-   matters: the flight image executes from the QSPI2 XIP window, so the
-   bootloader's pad setup must be reproduced rather than dropped. */
+/*
+ * In an XIP image the bootloader has already muxed the QSPI2 pads and the
+ * application is executing out of that window.  palSetPadMode() is not a
+ * no-op even when the new value equals the old one: set_pad_mode() runs
+ * GPIO_PinAFConfig() followed by GPIO_Init(), which briefly drops the
+ * alternate function and breaks instruction fetch.  Those pads must be
+ * left completely untouched here.
+ *
+ * The line macros are emitted by the hwdef generator from the pin labels
+ * in hwdef.dat, and only exist in the application (XIP) build; the
+ * bootloader build is guarded out by HAL_XIP_ENABLED.
+ */
+#if defined(HAL_XIP_ENABLED) && HAL_XIP_ENABLED && defined(HAL_GPIO_PIN_QSPI2_SCK)
+static const ioline_t ch32_xip_lines[] = {
+    HAL_GPIO_PIN_QSPI2_SCK,
+    HAL_GPIO_PIN_QSPI2_SCSN,
+    HAL_GPIO_PIN_QSPI2_SCSXN,
+    HAL_GPIO_PIN_QSPI2_SIO0,
+    HAL_GPIO_PIN_QSPI2_SIO1,
+    HAL_GPIO_PIN_QSPI2_SIO2,
+    HAL_GPIO_PIN_QSPI2_SIO3,
+    HAL_GPIO_PIN_QSPI2_SIOX0,
+    HAL_GPIO_PIN_QSPI2_SIOX1,
+    HAL_GPIO_PIN_QSPI2_SIOX2,
+    HAL_GPIO_PIN_QSPI2_SIOX3,
+};
+
+#define CH32_XIP_LINES_COUNT (sizeof(ch32_xip_lines) / sizeof(ch32_xip_lines[0]))
+
+static unsigned ch32_is_xip_pad(GPIO_TypeDef *gpio, unsigned pin)
+{
+    for (unsigned i = 0U; i < CH32_XIP_LINES_COUNT; i++) {
+        if ((PAL_PORT(ch32_xip_lines[i]) == gpio) &&
+            (PAL_PAD(ch32_xip_lines[i]) == pin)) {
+            return 1U;
+        }
+    }
+    return 0U;
+}
+#else
+#define ch32_is_xip_pad(gpio, pin) 0U
+#endif
+
+/* Apply the hwdef pin table, except for the QSPI2 pads in an XIP image.
+   The bootloader build has no XIP lines and applies the full table. */
 static void ch32_gpio_init(void)
 {
     unsigned port_i;
@@ -83,10 +146,36 @@ static void ch32_gpio_init(void)
            pin through GPIO_PinAFConfig(), but that helper is a read-
            modify-write on a single nibble, so the rest of the table
            survives.  The values are identical by construction. */
-        *p->aflr = p->afrl;
-        *p->afhr = p->afrh;
+        uint32_t aflr = p->afrl;
+        uint32_t afhr = p->afrh;
+#if defined(HAL_XIP_ENABLED) && HAL_XIP_ENABLED && defined(HAL_GPIO_PIN_QSPI2_SCK)
+        /* Keep the bootloader's mux nibble on the QSPI2 pads instead of
+           overwriting the whole register while the CPU fetches through
+           them.  The generated table should agree, but the XIP handover
+           is what actually matters here. */
+        for (pin = 0U; pin < 16U; pin++) {
+            if (ch32_is_xip_pad(p->gpio, pin)) {
+                if (pin < 8U) {
+                    const uint32_t mask = 0x0FU << (pin * 4U);
+                    aflr = (aflr & ~mask) | (*p->aflr & mask);
+                } else {
+                    const uint32_t mask = 0x0FU << ((pin - 8U) * 4U);
+                    afhr = (afhr & ~mask) | (*p->afhr & mask);
+                }
+            }
+        }
+#endif
+        *p->aflr = aflr;
+        *p->afhr = afhr;
 
         for (pin = 0U; pin < 16U; pin++) {
+            /* palSetPadMode() briefly drops the alternate function on
+               these pads (GPIO_PinAFConfig + GPIO_Init), which breaks
+               instruction fetch from the QSPI2 XIP window. */
+            if (ch32_is_xip_pad(p->gpio, pin)) {
+                continue;
+            }
+
             const uint32_t m  = (p->moder  >> (pin * 2U)) & 3U;
             const uint32_t ot = (p->otyper >> pin) & 1U;
             const uint32_t pu = (p->pupdr  >> (pin * 2U)) & 3U;
@@ -134,12 +223,14 @@ static void ch32_gpio_init(void)
     }
 }
 
-/* Called from crt0 before .data/.bss are set up.  Only enable the clocks
-   here; the full table is applied from boardInit(), after static data is
-   valid.  ch32_gpio_ports lives in flash either way. */
+/* Called from crt0 before .data/.bss are set up (see crt0.S:223).  Only
+   register/rodata operations are allowed here.  The full GPIO table is
+   applied from boardInit(), after static data is valid; ch32_gpio_ports
+   lives in flash either way. */
 void __early_init(void)
 {
     ch32_gpio_clock_enable();
+    ch32h417_clock_init();
 }
 
 void boardInit(void)
