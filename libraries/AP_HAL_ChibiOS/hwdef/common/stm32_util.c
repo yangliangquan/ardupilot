@@ -280,6 +280,11 @@ void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n)
         *v++ = (dr[n/2]&0xFFFF) | (dr[n/2+1]<<16);
 #elif defined(STM32G4)
         *v++ = ((__IO uint32_t *)&TAMP->BKP0R)[idx++];
+#elif defined(CH32H417)
+        (void)idx;
+        (void)n;
+        *v = RTC_BOOT_HOLD;
+        return;
 #else
         *v++ = ((__IO uint32_t *)&RTC->BKP0R)[idx++];
 #endif
@@ -289,7 +294,7 @@ void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n)
 // set n RTC backup registers starting at given idx
 void set_rtc_backup(uint8_t idx, const uint32_t *v, uint8_t n)
 {
-#if !defined(STM32F1)
+#if !defined(STM32F1) && !defined(CH32H417)
     if ((RCC->BDCR & RCC_BDCR_RTCEN) == 0) {
         RCC->BDCR |= STM32_RTCSEL;
         RCC->BDCR |= RCC_BDCR_RTCEN;
@@ -308,6 +313,11 @@ void set_rtc_backup(uint8_t idx, const uint32_t *v, uint8_t n)
         dr[n/2+1] = (*v) >> 16;
 #elif defined(STM32G4)
         ((__IO uint32_t *)&TAMP->BKP0R)[idx++] = *v++;
+#elif defined(CH32H417)
+        (void)idx;
+        (void)v;
+        (void)n;
+        return;
 #else
         ((__IO uint32_t *)&RTC->BKP0R)[idx++] = *v++;
 #endif
