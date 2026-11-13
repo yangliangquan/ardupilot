@@ -1013,12 +1013,72 @@ bootloader(unsigned timeout)
                 goto cmd_bad;
             }
 
+#if AP_BOOTLOADER_BULK_RX
+            /* CH32: EOC can arrive in a later USB OUT transaction.  A 2ms
+               timeout produces a false cmd_bad, which the host reports as a
+               CRC timeout because __verify_extf() swallows recv errors. */
+            if (!wait_for_eoc(200)) {
+#else
             if (!wait_for_eoc(2)) {
+#endif
+                goto cmd_bad;
+            }
+
+            /* The upstream code never validated the length: a mis-parsed
+               value makes this loop run over gigabytes and never reply. */
+            if (cmd_verify_bytes > board_info.extf_size) {
                 goto cmd_bad;
             }
 
             // compute CRC of the programmed area
             uint32_t sum = 0;
+#if AP_BOOTLOADER_BULK_RX
+            /*
+              ext_flash.read() costs one full QSPI/DMA frame per
+              MAX_READ_SIZE (1024) plus a wait_ready() status read per call.
+              On the WCH QSPI port a CRC over a 1.7MB image measured ~65s of
+              wall clock, during which the 1ms virtual timers (including the
+              emulated USB SOF) barely ran, so the host had already timed out.
+              The same XIP mapping used by jump_to_app() gives the CPU direct
+              read access; CRC straight from that memory window instead.
+              crc_crc32() is table driven but bit-for-bit identical to
+              crc32_small() (standard reflected CRC32, no final xor).
+            */
+            uint8_t *xip_base = nullptr;
+            if (ext_flash.start_xip_mode((void **)&xip_base)) {
+                const uint8_t *img = xip_base + EXT_FLASH_RESERVE_START_KB*1024;
+#if BOOT_FROM_EXT_FLASH
+                if (first_words[0] != 0xFFFFFFFF &&
+                    cmd_verify_bytes >= sizeof(first_words)) {
+                    sum = crc_crc32(sum, (const uint8_t *)first_words,
+                                    sizeof(first_words));
+                    sum = crc_crc32(sum, img + sizeof(first_words),
+                                    cmd_verify_bytes - sizeof(first_words));
+                } else
+#endif
+                {
+                    sum = crc_crc32(sum, img, cmd_verify_bytes);
+                }
+                ext_flash.stop_xip_mode();
+            } else {
+                /* Fallback for a flash that does not report XIP support. */
+                static uint8_t crc_buf[4096];
+                for (uint32_t p = 0; p < cmd_verify_bytes; ) {
+                    const uint32_t n = MIN(uint32_t(sizeof(crc_buf)),
+                                           cmd_verify_bytes - p);
+                    ext_flash.read(p + EXT_FLASH_RESERVE_START_KB*1024,
+                                   crc_buf, n);
+#if BOOT_FROM_EXT_FLASH
+                    if (p < sizeof(first_words) && first_words[0] != 0xFFFFFFFF) {
+                        const uint32_t nfw = MIN(uint32_t(sizeof(first_words) - p), n);
+                        memcpy(crc_buf, ((const uint8_t *)first_words) + p, nfw);
+                    }
+#endif
+                    sum = crc32_small(sum, crc_buf, n);
+                    p += n;
+                }
+            }
+#else
             uint8_t rembytes = cmd_verify_bytes % 4;
             for (unsigned p = 0; p < (cmd_verify_bytes-rembytes); p+=4) {
                 uint32_t bytes;
@@ -1038,6 +1098,7 @@ bootloader(unsigned timeout)
                 ext_flash.read(EXT_FLASH_RESERVE_START_KB*1024+cmd_verify_bytes-rembytes, bytes, rembytes);
                 sum = crc32_small(sum, bytes, rembytes);
             }
+#endif
             cout_word(sum);
             break;
 #endif
