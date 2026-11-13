@@ -17,6 +17,9 @@
 #include "hal.h"
 #include "board.h"
 #include "hwdef.h"
+#include "stm32_util.h"
+#include "usbcfg.h"
+#include "watchdog.h"
 
 #if defined(CH32H417)
 
@@ -143,6 +146,54 @@ void boardInit(void)
 {
     ch32_gpio_init();
     HAL_BOARD_INIT_HOOK_CALL;
+}
+
+/*
+ * Late initialization - the CH32 counterpart of board.c::__late_init().
+ *
+ * crt0.S calls this hook after DATA/BSS are in place and before the C++
+ * constructors (crt0.S:280).  crt1.c supplies a WEAK *empty* default, so
+ * leaving it undefined links perfectly cleanly but silently skips the
+ * entire HAL and RTOS startup.  In particular boardInit() is reached from
+ * halInit(), so without this hook the whole hwdef pin table is never
+ * applied either.  This is a boot-time-only failure: no compiler or
+ * linker diagnostic can catch it.
+ */
+void __late_init(void)
+{
+    /* hal_lld_init(), palInit() and every enabled xxxInit() (sd, spi, i2c,
+       pwm, adc, usb, sdu, wspi, trng, wdg, st), then boardInit(). */
+    halInit();
+
+    /* Kernel, idle thread, current-thread context and the ST timebase. */
+    chSysInit();
+
+    /* No STM32 RNG peripheral here: HAL_USE_TRNG provides TRNGD1 and
+       halInit() already called trngInit(), so the upstream RNG->CR block
+       has no counterpart. */
+
+    /* Latch the reset flags before anything clears them.  On this port
+       WDG_RESET_STATUS is RCC->RSTSCKR, so this is real functionality,
+       not a no-op. */
+    stm32_watchdog_save_reason();
+#ifndef HAL_BOOTLOADER_BUILD
+    stm32_watchdog_clear_reason();
+#endif
+
+#if CH_CFG_USE_HEAP == TRUE
+    /* Sets up the extra memory heaps and, importantly, the 6 KiB
+       DMA-reserve heap used by malloc_dma(). */
+    malloc_init();
+#endif
+
+#ifdef HAL_USB_PRODUCT_ID
+    /* Fill in the manufacturer/product/serial USB descriptor strings
+       (%BOARD%/%SERIAL% substitution). */
+    setup_usb_strings();
+#endif
+
+    /* No stm32_flash_set_NRST_MODE() counterpart: this port has no
+       option-byte flash interface (HAL_NO_FLASH_SUPPORT). */
 }
 
 #endif /* CH32H417 */
