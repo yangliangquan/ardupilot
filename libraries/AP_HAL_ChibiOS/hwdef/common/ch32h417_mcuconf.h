@@ -17,22 +17,12 @@
 #pragma once
 
 /*
- * WCH's ch32h417_usb.h is pulled in through chcore.h and defines the CDC
- * request codes as plain integer literals.  ChibiOS hal_usb_cdc.h defines
- * the same names with U suffixes; with -Werror that is a hard error even
- * though the values are identical.  hal.h reaches mcuconf.h (via
- * halconf.h) before hal_usb_cdc.h, so dropping the WCH copies here lets
- * the ChibiOS definitions stand without changing either value.
+ * The CDC class request codes that WCH's ch32h417_usb.h collides with
+ * ChibiOS' hal_usb_cdc.h are handled in ch32_stm32_compat.h.  Do not undef
+ * them here: this file is reached from halconf.h, which may be processed
+ * before chcore.h pulls in ch32h417_usb.h, and undef'ing in that order
+ * defeats the vendor header's #ifndef guard and re-creates the clash.
  */
-#ifdef CDC_SET_LINE_CODING
-#undef CDC_SET_LINE_CODING
-#endif
-#ifdef CDC_GET_LINE_CODING
-#undef CDC_GET_LINE_CODING
-#endif
-#ifdef CDC_SEND_BREAK
-#undef CDC_SEND_BREAK
-#endif
 
 #ifndef CH32H417_MCUCONF
 #define CH32H417_MCUCONF
