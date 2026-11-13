@@ -115,3 +115,8 @@
 #define CH32H417_I2S_USE_SPI3                  FALSE
 #define CH32H417_DAC_USE_DAC1                  FALSE
 #define CH32H417_CRY_USE_ECDC                  FALSE
+
+#if HAL_XIP_ENABLED
+#define CH32_QSPI2_NO_RESET TRUE
+#define CH32H417_NO_INIT TRUE
+#endif

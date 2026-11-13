@@ -47,6 +47,9 @@
   do {                                                                         \
   } while (0)
 #endif
+#if !defined(HAL_XIP_ENABLED)
+#define HAL_XIP_ENABLED FALSE
+#endif
 #include "ch32h417_mcuconf.h"
 #else
 
