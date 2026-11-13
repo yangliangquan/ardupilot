@@ -156,7 +156,7 @@ endif
 # Compiler settings
 #
 
-TRGT = riscv-wch-elf-
+TRGT = riscv32-wch-elf-
 CC   = $(TRGT)gcc
 CPPC = $(TRGT)g++
 LD   = $(TRGT)gcc
