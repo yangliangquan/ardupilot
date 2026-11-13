@@ -1514,7 +1514,7 @@ class chibios_riscv(chibios):
     toolchain, compiler flags and linker paths.
     '''
     abstract = True
-    toolchain = 'riscv-wch-elf'
+    toolchain = 'riscv32-wch-elf'
 
     def configure_env(self, cfg, env):
         if hasattr(self, 'hwdef'):

@@ -579,7 +579,7 @@ def configure(cfg):
     cfg.find_program('make', var='MAKE')
     # Use the objcopy that matches the selected toolchain.  STM32 boards
     # resolve to arm-none-eabi-objcopy exactly as before; RISC-V boards
-    # (e.g. CH32H417) resolve to riscv-wch-elf-objcopy.
+    # (e.g. CH32H417) resolve to riscv32-wch-elf-objcopy.
     if cfg.env.TOOLCHAIN == 'native':
         cfg.find_program('objcopy', var='OBJCOPY')
     else:
