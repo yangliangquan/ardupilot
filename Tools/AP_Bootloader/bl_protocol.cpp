@@ -230,7 +230,7 @@ do_jump(uint32_t stacktop, uint32_t entrypoint)
 
     chSysLock();
 
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
     /*
      * QingKe V5F (rv32imafc).  There is no MSP/PSP split and no 'bx'
      * instruction: the application's own entry code (_crt0_entry in
@@ -295,7 +295,7 @@ jump_to_app()
         }
     }
 
-#if !defined(__CH32H417_H)
+#if !defined(CH32H417)
     /*
      * Cortex-M images start with {initial stack pointer, reset vector}, so
      * check that the reset vector points inside the image.
@@ -319,7 +319,7 @@ jump_to_app()
         goto exit;
     }
 #endif
-#endif // __CH32H417_H
+#endif // CH32H417
 
 #if HAL_USE_CAN == TRUE ||  HAL_NUM_CAN_IFACES
     // for CAN firmware we start the watchdog before we run the
@@ -338,7 +338,7 @@ jump_to_app()
     led_set(LED_OFF);
 
     // resetting the clocks is needed for loading NuttX
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
     /*
      * The WCH port has no rccDisableAPBx() helpers, and a blanket
      * peripheral-clock reset would be actively harmful: the application
@@ -363,11 +363,11 @@ jump_to_app()
 #else
     rccDisableAPB1(~0);
 #endif
-#if !defined(__CH32H417_H)
+#if !defined(CH32H417)
     rccDisableAPB2(~0);
 #endif
 #if HAL_USE_SERIAL_USB == TRUE
-#if !STM32_OTG2_IS_OTG1 && !defined(__CH32H417_H)
+#if !STM32_OTG2_IS_OTG1 && !defined(CH32H417)
     // CH32: usb_lld_start() resets the SIE, and the WCH port has no
     // rccResetOTG_FS().
     rccResetOTG_FS();
@@ -380,7 +380,7 @@ jump_to_app()
     // disable all interrupt sources
     port_disable();
 
-#if !defined(__CH32H417_H)
+#if !defined(CH32H417)
     /* switch exception handlers to the application */
     *(volatile uint32_t *)SCB_VTOR = APP_START_ADDRESS;
 #else
@@ -390,7 +390,7 @@ jump_to_app()
 #endif
 
     /* extract the stack and entrypoint from the app vector table and go */
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
     // RISC-V: entry is the first byte of the image, crt0 sets up sp itself.
     do_jump(0, APP_START_ADDRESS);
 #else
