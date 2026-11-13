@@ -115,7 +115,7 @@ extern "C"
 #define MemManage_Handler AP_MemManage_Handler
 #endif
 
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
 /*
   The legacy fault handlers below are Cortex-M specific: they read the
   stacked exception frame through PSP/IPSR, decode SCB->CFSR/HFSR/MMFAR and
