@@ -90,6 +90,24 @@
 #endif
 
 /*
+ * CH32H417 USBFS device constraints.
+ *
+ * Every endpoint owns a single UEPn_DMA address register, so a group can
+ * drive one direction only (EP0, the control endpoint, is the exception).
+ * The controller also has no device-side SOF interrupt, which means the
+ * SerialUSB output queue is never flushed by a real SOF ISR.
+ *
+ * usbcfg.c keys the CDC endpoint layout and the SOF hook off this macro;
+ * the WCH USB LLD provides the substitute tick through
+ * CH32H417_USB_SOF_EMULATION.  These are chip properties, not board
+ * properties, so they live here and cover both the application and the
+ * bootloader build.
+ */
+#ifndef HAL_CH32_USBFS
+#define HAL_CH32_USBFS 1
+#endif
+
+/*
  * DMA API bridge.  AP_HAL_ChibiOS drives UART/RC-output DMA through the
  * STM32 DMA API names (dmaStreamAllocI & friends live in the STM32 port's
  * stm32_dma.h); the WCH DMAv1 LLD provides the identical operations under

@@ -46,10 +46,23 @@ static cdc_linecoding_t linecoding = {
 
 /*
  * Endpoints to be used for USBD1.
+ *
+ * STM32 OTG lets one bulk endpoint number serve both directions (0x81 IN
+ * and 0x01 OUT) because the core has separate TX/RX FIFOs.  The WCH
+ * USBFS has a single UEPn_DMA address per endpoint and can only drive
+ * one direction per endpoint, so CDC needs three distinct numbers.
+ * The descriptors below are built from these same macros, so the host
+ * sees the new addresses automatically.
  */
+#if defined(HAL_CH32_USBFS)
+#define USBD1_DATA_AVAILABLE_EP         1  /* bulk OUT, host -> device */
+#define USBD1_DATA_REQUEST_EP           2  /* bulk IN,  device -> host */
+#define USBD1_INTERRUPT_REQUEST_EP      3  /* interrupt IN            */
+#else
 #define USBD1_DATA_REQUEST_EP           1
 #define USBD1_DATA_AVAILABLE_EP         1
 #define USBD1_INTERRUPT_REQUEST_EP      2
+#endif
 
 /*
  * USB Device Descriptor.
@@ -264,6 +277,56 @@ uint8_t get_usb_parity(uint16_t endpoint_id)
       return 0;
 }
 #endif
+#if defined(HAL_CH32_USBFS)
+/*
+ * One direction per endpoint.  No USBEndpointConfig may carry both an
+ * in_state and an out_state on this controller: the group has a single
+ * UEPn_DMA base and the hardware does not split it into RX/TX halves.
+ */
+static USBOutEndpointState bulk_out_state;
+static USBInEndpointState  bulk_in_state;
+static USBInEndpointState  intr_in_state;
+
+
+static const USBEndpointConfig bulk_out_config = {
+  USB_EP_MODE_TYPE_BULK,
+  NULL,
+  NULL,
+  sduDataReceived,
+  0x0000,
+  0x0040,
+  NULL,
+  &bulk_out_state,
+  1,
+  NULL
+};
+
+static const USBEndpointConfig bulk_in_config = {
+  USB_EP_MODE_TYPE_BULK,
+  NULL,
+  sduDataTransmitted,
+  NULL,
+  0x0040,
+  0x0000,
+  &bulk_in_state,
+  NULL,
+  1,
+  NULL
+};
+
+static const USBEndpointConfig intr_in_config = {
+  USB_EP_MODE_TYPE_INTR,
+  NULL,
+  sduInterruptTransmitted,
+  NULL,
+  0x0010,
+  0x0000,
+  &intr_in_state,
+  NULL,
+  1,
+  NULL
+};
+#else
 /**
  * @brief   IN EP1 state.
  */
@@ -310,6 +373,7 @@ static const USBEndpointConfig ep2config = {
   1,
   NULL
 };
+#endif /* HAL_CH32_USBFS */
 
 /*
  * Handles the USB driver global events.
@@ -326,8 +390,14 @@ static void usb_event(USBDriver *usbp, usbevent_t event) {
     /* Enables the endpoints specified into the configuration.
        Note, this callback is invoked from an ISR so I-Class functions
        must be used.*/
+#if defined(HAL_CH32_USBFS)
+    usbInitEndpointI(usbp, USBD1_DATA_REQUEST_EP,     &bulk_in_config);
+    usbInitEndpointI(usbp, USBD1_DATA_AVAILABLE_EP,   &bulk_out_config);
+    usbInitEndpointI(usbp, USBD1_INTERRUPT_REQUEST_EP, &intr_in_config);
+#else
     usbInitEndpointI(usbp, USBD1_DATA_REQUEST_EP, &ep1config);
     usbInitEndpointI(usbp, USBD1_INTERRUPT_REQUEST_EP, &ep2config);
+#endif
 
     /* Resetting the state of the CDC subsystem.*/
     sduConfigureHookI(&SDU1);
@@ -394,6 +464,11 @@ static void sof_handler(USBDriver *usbp) {
 
   (void)usbp;
 
+  /* On WCH USBFS there is no SOF interrupt: the LLD calls this hook from
+     a 1ms virtual timer instead.  Virtual timer callbacks run with the
+     kernel unlocked, so the lock is still required here, exactly as on
+     a real SOF ISR.  Without this periodic call obqTryFlushI() never
+     runs and a partially filled CDC output buffer is never transmitted. */
   osalSysLockFromISR();
   sduSOFHookI(&SDU1);
   osalSysUnlockFromISR();
