@@ -171,9 +171,13 @@ extern "C" {
   default to a large interrupt stack for now. We may trim this later
   if we become confident of our interrupt handler requirements. Note
   that we pay for this stack size in every thread, so it is quite
-  expensive in memory
+  expensive in memory.
+
+  NOTE: RISC-V ports compute this from the interrupt nesting depth
+  themselves (PORT_RISCV_NESTING_LEVELS frames plus C-handler margin,
+  ~1KB with FPU); do not override them with this STM32-era value.
  */
-#ifndef PORT_INT_REQUIRED_STACK
+#if !defined(__riscv) && !defined(PORT_INT_REQUIRED_STACK)
 #define PORT_INT_REQUIRED_STACK 128
 #endif
 

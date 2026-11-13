@@ -45,7 +45,7 @@ endif
 
 # Exceptions stack size
 ifeq ($(USE_EXCEPTIONS_STACKSIZE),)
-  LDOPT := $(LDOPT),--defsym=__main_stack_size__=0x400
+  LDOPT := $(LDOPT),--defsym=__main_stack_size__=0x800
 else
   LDOPT := $(LDOPT),--defsym=__main_stack_size__=$(USE_EXCEPTIONS_STACKSIZE)
 endif

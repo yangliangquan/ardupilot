@@ -218,13 +218,17 @@ SECTIONS
         __ram0_free__ = .;
     } > ram0
 
-    /* Exception/main stack.  The QingKe V5F uses software stacking, so the
-       main stack is a normal RAM reservation in DTCM. */
-    .mstack (NOLOAD) : ALIGN(16)
+    /* Independent interrupt stack. Interrupt frames of nested levels and the
+       C call stack of all the handlers are allocated here instead of on the
+       stack of the interrupted thread, see PORT_RISCV_USE_IRQ_STACK. */
+    .istack (NOLOAD) :
     {
+        . = ALIGN(16);
+        __irq_stack_base__ = .;
         __main_stack_base__ = .;
         . += __main_stack_size__;
         . = ALIGN(16);
+        __irq_stack_end__ = .;
         __main_stack_end__ = .;
     } > MAIN_STACK_RAM
 
