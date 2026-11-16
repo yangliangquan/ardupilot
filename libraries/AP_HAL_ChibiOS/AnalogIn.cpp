@@ -364,7 +364,7 @@ float AnalogIn::get_pin_scaling(uint8_t adc_index, uint8_t pin_index)
 #if HAL_WITH_MCU_MONITORING
 static uint16_t min_vrefint, max_vrefint;
 #endif
-void AnalogIn::adccallback(ADCDriver *adcp)
+__FASTRAMFUNC__ void AnalogIn::adccallback(ADCDriver *adcp)
 {
     uint8_t index = get_adc_index(adcp);
     if (index >= HAL_NUM_ANALOG_INPUTS) {
