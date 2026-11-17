@@ -11,9 +11,10 @@
  *
  * Memory layout (see CH32H417xx.py / ch32h417_memory.h for the numbers):
  *
- *   default_flash : .crt0/.vectors, .text, .rodata, initialisers (XIP)
+ *   default_flash : .crt0, .text, .rodata, initialisers (XIP)
  *   instram       : ITCM, 0x200A0000, 128K
- *                   -> hot code explicitly placed in .itcm* (copied at boot)
+ *                   -> ECLIC vector table (.vectors) and hot code explicitly
+ *                      placed in .itcm* (copied at boot)
  *   flashram      : upper shared SRAM, 0x20120000, 384K
  *                   -> larger hot code in .sram* / .ramfunc* (copied at boot)
  *   ram0          : DTCM, 0x200C0200 (first 512B of DTCM are hardware owned)
@@ -67,19 +68,13 @@ ENTRY(_start)
 
 SECTIONS
 {
-    /* Reset entry and the ECLIC vector table.  _start must be the very
-       first byte of the external flash image: the bootloader jumps to
-       ORIGIN(default_flash).  The 512 byte alignment is required by the
-       QingKe V5F ECLIC for tables with more than 64 interrupt sources. */
-    .vectors : ALIGN(4) SUBALIGN(4)
+    /* Reset entry code.  _start must be the very first byte of the
+       external flash image: the bootloader jumps to ORIGIN(default_flash). */
+    .crt0 : ALIGN(4) SUBALIGN(4)
     {
-        __vectors_base__ = .;
         KEEP(*(SORT_NONE(.crt0)))
-        . = ALIGN(512);
-        KEEP(*(SORT_NONE(.vectors)))
-        __vectors_end__ = .;
     } > default_flash
-    __firmware_crc_start__ = LOADADDR(.vectors);
+    __firmware_crc_start__ = LOADADDR(.crt0);
     __firmware_crc_ext_start__ = 0;
     __firmware_crc_ext_end__ = 0;
 
@@ -144,6 +139,19 @@ SECTIONS
     {
         __ram1_init_text__ = LOADADDR(.itcm_init);
         __ram1_init__ = .;
+        /* ECLIC vector table: fetched on every interrupt entry, so it lives
+           in zero-wait-state ITCM instead of the slow QSPI XIP window.
+           vectors.S aligns it on a 1024 byte boundary (.balign 1024) as
+           required by mtvec[9:2] being hardwired to 0 on QingKe V5F, and
+           since this section starts at ORIGIN(instram) the alignment holds
+           for both the VMA and the 1024 padded load image.  crt0 programs
+           mtvec with the (ITCM) address of _vector_base before crt1 copies
+           this area; interrupts are globally disabled (MIE=0) until after
+           the copy, and the slot entries are absolute handler addresses
+           which are unaffected by the move. */
+        __vectors_base__ = .;
+        KEEP(*(SORT_NONE(.vectors)))
+        __vectors_end__ = .;
         KEEP(*(.itcm))
         KEEP(*(.itcm.*))
         KEEP(*(.fastramfunc))
