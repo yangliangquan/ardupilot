@@ -1559,13 +1559,14 @@ INCLUDE common.ld
         dtcm_base, dtcm_len = mem['dtcm']
         sram_base, sram_len = mem['sram']
 
-        ext_flash_base = self.get_mcu_config('EXT_FLASH_BASE', True)
+        ext_flash_base = self.get_mcu_config('EXT_FLASH_BASE', False)
         ext_flash_reserve_start = self.get_config('EXT_FLASH_RESERVE_START_KB', default=0, type=int)
         ext_flash_reserve_end = self.get_config('EXT_FLASH_RESERVE_END_KB', default=0, type=int)
         ext_flash_len_kb = (self.get_config('EXT_FLASH_SIZE_MB', default=0, type=int) * 1024
                             - ext_flash_reserve_start - ext_flash_reserve_end)
 
         int_flash_base = self.get_mcu_config('FLASH_BASE', True)
+        int_flash_size_kb = self.get_mcu_config('FLASH_SIZE_KB', True)
         boot_flash_len_kb = self.get_mcu_config('FLASH_BOOTLOADER_MAX_KB', False)
         if boot_flash_len_kb is None:
             boot_flash_len_kb = self.get_config('FLASH_BOOTLOADER_LOAD_KB', type=int)
@@ -1589,16 +1590,23 @@ MEMORY
 }
 
 /* common_ch32.ld targets default_flash for the XIP image; the bootloader
-   executes from the internal CodeFlash instead. */
+   executes from the internal CodeFlash instead.  It carries no cold code,
+   so the cold-flash window is aliased away onto its own flash. */
 REGION_ALIAS("default_flash", flash);
 
 INCLUDE common.ld
 ''' % (int_flash_base, boot_flash_len_kb,
        itcm_base, itcm_len, sram_base, sram_len, dtcm_base, dtcm_len))
             else:
-                f.write('''/* generated ldscript.ld - CH32H417 external QSPI2 XIP */
+                app_base = int_flash_base + boot_flash_len_kb * 1024
+                codeflash_end = int_flash_size_kb * 1024
+                if codeflash_end <= app_base:
+                    self.error("CH32H417 app window is empty: bootloader "
+                               "budget covers the whole CodeFlash")
+                f.write('''/* generated ldscript.ld - CH32H417 internal CodeFlash XIP + QSPI2 cold */
 MEMORY
 {
+    /* Application XIP window in the internal CodeFlash (zero wait). */
     default_flash (rx)  : org = 0x%08x, len = %uK
     instram       (rwx) : org = 0x%08x, len = %u
     flashram      (rwx) : org = 0x%08x, len = %u
@@ -1606,7 +1614,7 @@ MEMORY
 }
 
 INCLUDE common.ld
-''' % (ext_flash_base + ext_flash_reserve_start * 1024, ext_flash_len_kb,
+''' % (app_base, (codeflash_end - app_base) // 1024,
        itcm_base, itcm_len, sram_base, sram_len, dtcm_base, dtcm_len))
 
     def copy_common_linkerscript(self, outpath):
