@@ -308,7 +308,30 @@ SECTIONS
         /* --- batch3 remainder (2026-11-21): baro/ESC/GPS-RC frontends and
            the SD logging write path (FatFS + AP_Logger file backends +
            FATFS filesystem layer); viable since HAL_LOGGING_FILE_BUFSIZE 32
-           freed the heap. --- */
+           freed the heap.  On the QSPI XIP layout (port) this block demotes
+           to the cached flash window instead: the full firmware overflows
+           the 512K SRAM by ~20K and none of it is on the per-loop path. --- */
+        IF (ORIGIN(default_flash) < 0x40000000)
+        *libArduCopter_libs.a:AP_Baro_MS5611.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_ESC_Telem.cpp.0.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_ESC_Telem_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)
+        *libch.a:ff.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Logger_File.cpp.3.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:LogFile.cpp.0.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Logger_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Logger_MAVLink.cpp.0.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Filesystem.cpp.0.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Filesystem_FATFS.cpp.0.o(.text .text.* .rodata .rodata.*)
+        ENDIF
+        . = ALIGN(4);
+    } > flashram AT > default_flash
+
+    IF (ORIGIN(default_flash) >= 0x40000000)
+    /* port-only: the demoted batch3 block above, XIP from the icache MEM0
+       window.  Kept as its own section before .ram0_init/.text so the
+       patterns win first-match placement against the catch-alls. */
+    .sram_demote : ALIGN(4) SUBALIGN(4)
+    {
         *libArduCopter_libs.a:AP_Baro_MS5611.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:AP_ESC_Telem.cpp.0.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:AP_ESC_Telem_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)
@@ -320,7 +343,8 @@ SECTIONS
         *libArduCopter_libs.a:AP_Filesystem.cpp.0.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:AP_Filesystem_FATFS.cpp.0.o(.text .text.* .rodata .rodata.*)
         . = ALIGN(4);
-    } > flashram AT > default_flash
+    } > default_flash
+    ENDIF
 
     /* ---------------- CRT1 area 0: DTCM hot code ----------------
        Third code layer.  ITCM (128K) and shared SRAM (512K minus heap)
