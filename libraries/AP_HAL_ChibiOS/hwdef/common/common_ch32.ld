@@ -4,11 +4,13 @@
  * Shared by BOTH images; the generated ldscript.ld decides where
  * "default_flash" points through a REGION_ALIAS:
  *
- *   flight firmware : default_flash -> internal CodeFlash V5F app window,
- *                     0x00010000, 896K (zero wait states; QSPI2 is no
- *                     longer used by the flight image)
+ *   flight firmware : default_flash -> the app image window chosen by
+ *                     write_ch32_ldscript() from hwdef.dat: external
+ *                     QSPI2 NOR XIP at 0x70000000 (4M, ch32h417-port)
+ *                     or internal CodeFlash at 0x0000F000 (896K,
+ *                     ch32h417-port-crap)
  *   bootloader      : default_flash -> "flash", the internal CodeFlash
- *                     bootloader area at 0x00010000 (zero wait states)
+ *                     bootloader area at 0x00001000 (zero wait states)
  *
  * Memory layout (see CH32H417xx.py / ch32h417_memory.h for the numbers):
  *
@@ -36,10 +38,11 @@
  * objects must be stolen out of the .text/.rodata catch-alls.
  *
  * The boot path is: internal-flash bootloader validates the app image and
- * jumps to APP_START_ADDRESS (0x00010000) in the flight image.  Both the
- * internal CodeFlash and the QSPI XIP window have the same (slow) fetch
- * bandwidth, so the hot flight path is relocated into ITCM/SRAM at boot
- * instead of being XIP'd; everything else stays XIP.
+ * jumps to APP_START_ADDRESS (0x70000000 on port, 0x0000F000 on crap) in
+ * the flight image.  Both the internal CodeFlash and the QSPI XIP window
+ * have the same (slow) fetch bandwidth, so the hot flight path is
+ * relocated into ITCM/SRAM at boot instead of being XIP'd; everything
+ * else stays XIP.
  *
  * The ChibiOS adapt-417 crt0.S/crt1.c do all runtime relocation:
  *   - crt0 copies .data and clears .bss, using __textdata_base__,
@@ -516,23 +519,22 @@ SECTIONS
         __heap_end__ = .;
     } > HEAP_RAM
 
-    /* Crash log occupies the unused tail of the flash window.  It is pure
-       NOLOAD - only the symbols are emitted - so it never inflates the
-       image.  Overflow is reported by the ASSERT below (the old trick of
-       forcing the location counter to the window end produced a confusing
-       "cannot move location counter backwards" error). */
-    .crash_log (NOLOAD) : ALIGN(32)
-    {
-        __crash_log_base__ = ORIGIN(default_flash) + LENGTH(default_flash);
-        __crash_log_end__ = __crash_log_base__;
-    } > default_flash
-
     /* Last load-image section placed in the flash window: .data is the
-       final section with a flash load image (.bss/.heap/.crash_log are
-       NOLOAD), so its LMA range covers every relocated area's load image
-       (.crt0, .itcm_init, .sram_init, .ram0_init, .text, .rodata).  The
+       final section with a flash load image (.bss/.heap are NOLOAD), so
+       its LMA range covers every relocated area's load image (.crt0,
+       .itcm_init, .sram_init, .ram0_init, .text, .rodata).  The
        CRC/self-check must cover the WHOLE image, not just the tail. */
     __firmware_crc_end__ = LOADADDR(.data) + SIZEOF(.data);
     __flash_image_end__ = LOADADDR(.data) + SIZEOF(.data);
     ASSERT(__flash_image_end__ <= __flash_end__, "ERROR: ArduPilot image overflows the flash window; disable more features in hwdef.dat (see the 'flash fit trimming' block)")
+
+    /* Crash log occupies the unused tail of the flash window, mirroring
+       common_extf_h750.ld: reserve 16K at the end.  If the image already
+       leaves less than 16K (the internal-CodeFlash build) the reservation
+       collapses to zero size rather than failing the link.  Symbols only
+       - nothing is preloaded there and forcing the location counter into
+       the window would trip "cannot move location counter backwards"
+       when default_flash sits below the RAM regions. */
+    PROVIDE(__crash_log_base__ = MAX(__flash_image_end__, __flash_end__ - 16K));
+    PROVIDE(__crash_log_end__ = __flash_end__);
 }
