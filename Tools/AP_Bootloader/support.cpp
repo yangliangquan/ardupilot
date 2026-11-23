@@ -249,7 +249,9 @@ bool flash_write_buffer(uint32_t address, const uint32_t *v, uint8_t nwords)
     while (nwords > 0) {
         if (fbuf.n == 0) {
             fbuf.address = address;
-#if defined (CH32H417)
+#if defined (CH32H417) && !BOOT_FROM_EXT_FLASH
+            // the encrypted internal CodeFlash erases to 0xe339e339;
+            // a QSPI NOR target keeps the 0xff fill below
             for (int i = 0; i<sizeof(fbuf.buffer)/4; i++) {
                 fbuf.buffer[i]=0xe339e339;
             }

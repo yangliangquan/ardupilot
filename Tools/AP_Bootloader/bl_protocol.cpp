@@ -290,11 +290,17 @@ jump_to_app()
 #endif
     /*
      * We hold back the programming of the lead words until the upload
-     * is marked complete by the host. So if they are not 0xffffffff,
-     * we should try booting it.
+     * is marked complete by the host. So if they are not the target's
+     * erased value, we should try booting it.
      */
     for (uint8_t i=0; i<RESERVE_LEAD_WORDS; i++) {
-#if defined(CH32H417)
+#if defined(CH32H417) && !BOOT_FROM_EXT_FLASH
+        /*
+         * The CH32H417 internal CodeFlash is encrypted: erased words
+         * read back as 0xe339e339, not 0xffffffff.  A QSPI NOR target
+         * (BOOT_FROM_EXT_FLASH) keeps the normal 0xffffffff erase
+         * pattern.
+         */
         if (app_base[i] == 0xe339e339) {
 #else
         if (app_base[i] == 0xffffffff) {
@@ -738,7 +744,8 @@ bootloader(unsigned timeout)
 
             // verify the erase
             for (address = 0; address < board_info.fw_size; address += 4) {
-#if defined(CH32H417)
+#if defined(CH32H417) && !BOOT_FROM_EXT_FLASH
+                // encrypted internal CodeFlash erases to 0xe339e339
                 if (flash_func_read_word(address) != 0xe339e339) {
 #else
                 if (flash_func_read_word(address) != 0xffffffff) {
@@ -1039,7 +1046,11 @@ bootloader(unsigned timeout)
                 {
                     bytes = flash_func_read_word(p);
                 }
-#if defined(CH32H417)
+#if defined(CH32H417) && !BOOT_FROM_EXT_FLASH
+                // normalise the encrypted internal flash's erased value
+                // to the 0xffffffff the host image has at that offset;
+                // QSPI NOR already reads 0xffffffff when unwritten and
+                // 0xe339e339 there would be genuine image data.
                 if(p >= address && bytes == 0xe339e339) bytes = 0xffffffff;
 #endif
                 sum = crc32_small(sum, (uint8_t *)&bytes, sizeof(bytes));
@@ -1340,7 +1351,7 @@ bootloader(unsigned timeout)
             }
 
             // program the deferred first word
-#if defined (CH32H417)
+#if defined (CH32H417) && !BOOT_FROM_EXT_FLASH
             if (first_words[0] != 0xe339e339){
 #else
             if (first_words[0] != 0xffffffff){
