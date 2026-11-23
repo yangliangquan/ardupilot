@@ -114,7 +114,8 @@
  * the ch32Dma* prefix.  The ISR callback type has the same signature
  * (void (*)(void *p, uint32_t flags)) on both ports.
  */
-#define dmaStreamAllocI ch32DmaStreamAllocI
+#define dmaStreamAllocI(_id, _prio, _func, _arg)                            \
+        ch32DmaStreamAllocI(CH32_DMA_STREAM_ID_ANY, _prio, _func, _arg)
 #define dmaStreamFreeI ch32DmaStreamFreeI
 #define dmaStreamSetPeripheral ch32DmaStreamSetPeripheral
 #define dmaStreamSetMemory0 ch32DmaStreamSetMemory0
