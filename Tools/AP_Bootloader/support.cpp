@@ -439,8 +439,17 @@ void led_pulses(uint8_t npulses)
     }
 }
 
+/*
+  GCC's loop-idiom recognition (-ftree-loop-distribute-patterns) can
+  rewrite the loops below into calls to the very libc function they are
+  meant to replace.  Those calls bind back to these definitions, turning
+  them into infinite recursion (observed on the CH32H417 RISC-V build
+  with strlen).  Disable the transformation for these variants.
+ */
+#define NO_LOOP_IDIOM __attribute__((optimize("no-tree-loop-distribute-patterns")))
+
 //simple variant of std c function to reduce used flash space
-void *memcpy(void *dest, const void *src, size_t n)
+NO_LOOP_IDIOM void *memcpy(void *dest, const void *src, size_t n)
 {
     uint8_t *tdest = (uint8_t *)dest;
     uint8_t *tsrc = (uint8_t *)src;
@@ -451,7 +460,7 @@ void *memcpy(void *dest, const void *src, size_t n)
 }
 
 //simple variant of std c function to reduce used flash space
-int strncmp(const char *s1, const char *s2, size_t n)
+NO_LOOP_IDIOM int strncmp(const char *s1, const char *s2, size_t n)
 {
     while ((*s1 != 0) && (*s1 == *s2) && n--) {
         s1++;
@@ -464,7 +473,7 @@ int strncmp(const char *s1, const char *s2, size_t n)
 }
 
 //simple variant of std c function to reduce used flash space
-int strcmp(const char *s1, const char *s2)
+NO_LOOP_IDIOM int strcmp(const char *s1, const char *s2)
 {
     while ((*s1 != 0) && (*s1 == *s2)) {
         s1++;
@@ -474,7 +483,7 @@ int strcmp(const char *s1, const char *s2)
 }
 
 //simple variant of std c function to reduce used flash space
-size_t strlen(const char *s1)
+NO_LOOP_IDIOM size_t strlen(const char *s1)
 {
     size_t ret = 0;
     while (*s1++) ret++;
@@ -482,7 +491,7 @@ size_t strlen(const char *s1)
 }
 
 //simple variant of std c function to reduce used flash space
-void *memset(void *s, int c, size_t n)
+NO_LOOP_IDIOM void *memset(void *s, int c, size_t n)
 {
     uint8_t *b = (uint8_t *)s;
     while (n--) {
