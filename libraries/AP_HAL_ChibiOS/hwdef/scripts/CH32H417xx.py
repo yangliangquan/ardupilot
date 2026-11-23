@@ -108,19 +108,19 @@ mcu = {
         # so only .itcm*/.sram* are relocated by crt1.  This is added to
         # the compiler command line.
         'CRT0_INIT_TEXT' : '0',
-        # icache address-space strategy (crt0.S, CSR 0xBC2).  The
-        # internal-CodeFlash layout executes XIP at 0x00010000, covered
-        # by CODE_AREA (0x00000000-0x1FFFFFFF).  MEM0 (the QSPI XIP
-        # window at 0x70000000) is deliberately NOT set here: crt0.S
-        # only reads these switches from the command line and the
-        # hwdef.h mcu block precedes the board defines, so a board
-        # running from QSPI must set 'define PORT_RISCV_ICACHE_MEM0_AREA
-        # TRUE' in its hwdef.dat (see CCHv6c/hwdef.dat on the external
-        # layout).  MEM1 is unused on this part.
+        # icache address-space strategy (crt0.S, CSR 0xBC2).  The two
+        # code windows are selected per layout in the board hwdef.dat,
+        # the single point of control (the hwdef.h mcu block precedes
+        # the board defines, so anything set here could not be
+        # overridden): the internal-CodeFlash layout caches CODE_AREA
+        # (0x00000000-0x1FFFFFFF) with MEM0 off, the QSPI XIP layout
+        # caches MEM0 (0x60000000-0x7FFFFFFF) with CODE_AREA off.  The
+        # bootloader has no define here at all and gets crt0.S's
+        # CODE_AREA=TRUE default, which is right for its internal
+        # CodeFlash home.  MEM1 is unused on this part.
         # SRAM_AREA stays 0: ITCM/DTCM/SRAM are zero-wait and uncached, so
         # the cache never holds stale lines for the crt1-relocated code.
         "PORT_RISCV_ICACHE_ENABLE":"1",
-        "PORT_RISCV_ICACHE_CODE_AREA":"1",
         "PORT_RISCV_ICACHE_SRAM_AREA":"0",
         "PORT_RISCV_ICACHE_MEM1_AREA":"0",
         },

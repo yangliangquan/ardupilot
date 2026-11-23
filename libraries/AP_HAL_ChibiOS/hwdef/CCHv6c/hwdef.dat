@@ -268,9 +268,10 @@ define AP_WATCHDOG_SAVE_FAULT_ENABLED 0
 STDOUT_SERIAL SD3
 STDOUT_BAUDRATE 115200
 
-# the app XIPs from the QSPI window at 0x70000000, which the icache
-# covers through the MEM0 address space (the mcu default CODE_AREA-only
-# strategy assumes the internal-CodeFlash layout).
+# the app XIPs from the QSPI window at 0x70000000: cache it through the
+# MEM0 window (0x60000000-0x7FFFFFFF) and turn CODE_AREA off - this
+# image never fetches code from the internal CodeFlash.
 define PORT_RISCV_ICACHE_MEM0_AREA TRUE
+define PORT_RISCV_ICACHE_CODE_AREA FALSE
 
 define CH_DBG_STACK_CHECKS TRUE
