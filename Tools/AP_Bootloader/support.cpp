@@ -23,6 +23,13 @@
 // optional uprintf() code for debug
 // #define BOOTLOADER_DEBUG SD1
 
+// bl_protocol.cpp defines the same fallback; the macro only exists in
+// the hwdef.h of boards whose bootloader images firmware in external
+// flash.
+#ifndef BOOT_FROM_EXT_FLASH
+#define BOOT_FROM_EXT_FLASH 0
+#endif
+
 #ifndef AP_BOOTLOADER_ALWAYS_ERASE
 #define AP_BOOTLOADER_ALWAYS_ERASE 0
 #endif
