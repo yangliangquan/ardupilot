@@ -92,10 +92,16 @@ SECTIONS
         __vectors_base__ = .;
         KEEP(*(SORT_NONE(.vectors)))
         __vectors_end__ = .;
+        /* .vectors has no 4-byte multiple size; SUBALIGN(4) aligns the
+           array input sections but not the base symbols, so align the
+           location counter before taking each base.  Without this
+           crt0's initloop lw faults misaligned on __init_array_base__. */
+        . = ALIGN(4);
         __init_array_base__ = .;
         KEEP(*(SORT(.init_array.*)))
         KEEP(*(.init_array))
         __init_array_end__ = .;
+        . = ALIGN(4);
         __fini_array_base__ = .;
         KEEP(*(.fini_array))
         KEEP(*(SORT(.fini_array.*)))
