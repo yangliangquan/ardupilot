@@ -89,7 +89,21 @@ static uint32_t flash_base_page;
 // number of pages for the main firmware
 static uint16_t num_pages;
 // flash address of the main firmware
+#if defined(CH32H417)
+/*
+  The CodeFlash XIP window starts at 0x00000000 (V3 stub first, bootloader
+  linked at FLASH_LOAD_ADDRESS) while erase/program go through the
+  offset-mapped programming alias at 0x08000000, so the app image offset
+  inside the programming alias also includes FLASH_LOAD_ADDRESS.  This
+  matches APP_START_ADDRESS in bl_protocol.cpp (= FLASH_LOAD_ADDRESS +
+  (FLASH_BOOTLOADER_LOAD_KB + APP_START_OFFSET_KB)K) and the app link
+  address emitted by write_ch32_ldscript().
+*/
+#define CH32_PROG_ALIAS_BASE 0x08000000U
+static const uint8_t *flash_base = (const uint8_t *)(CH32_PROG_ALIAS_BASE + FLASH_LOAD_ADDRESS + (FLASH_BOOTLOADER_LOAD_KB + APP_START_OFFSET_KB)*1024U);
+#else
 static const uint8_t *flash_base = (const uint8_t *)(0x08000000 + (FLASH_BOOTLOADER_LOAD_KB + APP_START_OFFSET_KB)*1024U);
+#endif
 
 /*
   initialise flash_base_page and num_pages
@@ -99,9 +113,12 @@ void flash_init(void)
     uint32_t reserved = 0;
     num_pages = stm32_flash_getnumpages();
     /*
-      advance flash_base_page to account for (FLASH_BOOTLOADER_LOAD_KB + APP_START_OFFSET_KB)
+      advance flash_base_page to account for the offset of flash_base
+      inside the programming alias (FLASH_LOAD_ADDRESS +
+      (FLASH_BOOTLOADER_LOAD_KB + APP_START_OFFSET_KB)K on CH32H417,
+      (FLASH_BOOTLOADER_LOAD_KB + APP_START_OFFSET_KB)K on STM32)
      */
-    while (reserved < (FLASH_BOOTLOADER_LOAD_KB + APP_START_OFFSET_KB) * 1024U &&
+    while (reserved < uint32_t(flash_base - (const uint8_t *)0x08000000) &&
            flash_base_page < num_pages) {
         reserved += stm32_flash_getpagesize(flash_base_page);
         flash_base_page++;
@@ -232,7 +249,13 @@ bool flash_write_buffer(uint32_t address, const uint32_t *v, uint8_t nwords)
     while (nwords > 0) {
         if (fbuf.n == 0) {
             fbuf.address = address;
-            memset(fbuf.buffer, 0xff, sizeof(fbuf.buffer));
+#if defined (CH32H417)
+            for (int i = 0; i<sizeof(fbuf.buffer)/4; i++) {
+                fbuf.buffer[i]=0xe339e339;
+            }
+#else
+             memset(fbuf.buffer, 0xff, sizeof(fbuf.buffer));
+#endif
         }
         uint8_t n = MIN(ARRAY_SIZE(fbuf.buffer)-fbuf.n, nwords);
         memcpy(&fbuf.buffer[fbuf.n], v, n*4);

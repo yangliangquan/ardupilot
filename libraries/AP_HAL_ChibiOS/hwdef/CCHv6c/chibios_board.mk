@@ -182,13 +182,21 @@ CPPWARN = -Wall -Wextra -Wundef -Werror
 # User defines
 #
 
+# The flight image is XIP from CodeFlash (CRT0_INIT_TEXT=0); the
+# bootloader build overrides this to 1 through CHIBIOS_BUILD_FLAGS
+# (chibios_hwdef.py) because its linker script links .text into ITCM.
+CRT0_INIT_TEXT ?= 0
+
 UDEFS = $(ENV_UDEFS) $(FATFS_FLAGS) -DHAL_BOARD_NAME=\"$(HAL_BOARD_NAME)\" \
         -DHAL_MAX_STACK_FRAME_SIZE=$(HAL_MAX_STACK_FRAME_SIZE) \
-        -DCRT0_INIT_TEXT=0 -DCRT1_AREAS_NUMBER=3
+        -DCRT0_INIT_TEXT=$(CRT0_INIT_TEXT) -DCRT1_AREAS_NUMBER=3
 
-# crt0.S is assembled from the ChibiOS library, so the "do not copy the
-# whole .text into ITCM" switch must also reach the assembler.
-UADEFS = -DCRT0_INIT_TEXT=0
+# crt0.S is assembled from the ChibiOS library, so the .text copy switch
+# must also reach the assembler.  CRT0_ASM_RAM_AREAS=1 relocates the
+# three RAM areas with inline assembly instead of crt1's flash-resident
+# relocation table (stale-cache-safe boot path, see crt0.S); both
+# common_ch32.ld and common_ch32_boot.ld define the __ramN_*__ symbols.
+UADEFS = -DCRT0_INIT_TEXT=$(CRT0_INIT_TEXT) -DCRT0_ASM_RAM_AREAS=1
 
 ifeq ($(ENABLE_ASSERTS),yes)
  UDEFS += -DHAL_CHIBIOS_ENABLE_ASSERTS

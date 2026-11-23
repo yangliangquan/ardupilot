@@ -6,10 +6,12 @@
 CH32H417 (QingKe V5F, RISC-V) MCU description for chibios_hwdef.py.
 
 Build settings and the memory layout below are written for the clean
-CH32H417 port: the bootloader lives in the internal CodeFlash, the flight
-image executes in place from the external QSPI2 NOR flash mapped at
-0x70000000, hot code is relocated to ITCM / shared SRAM at startup and
-all variables, heap and stacks live in DTCM.
+CH32H417 port: the bootloader lives in the internal CodeFlash, hot code
+is relocated to ITCM / shared SRAM at startup and all variables, heap
+and stacks live in DTCM.  The flight image's XIP window is chosen per
+board by hwdef.dat: with EXT_FLASH_SIZE_MB it executes in place from the
+external QSPI2 NOR flash mapped at 0x70000000, otherwise from the
+internal CodeFlash above the bootloader budget.
 
 AltFunction_map and ADC1_map are the board's validated CCH-v6c pin /
 peripheral layout (derived from the CH32H417 datasheet pin mux tables).
@@ -29,15 +31,27 @@ pincount = {
     'F': 16,
     }
 
+# QingKe V5F: RV32IMAF + Zba/Zbb/Zbc/Zbs + WCH xw vendor extension.
+# medlow is valid because the XIP window (0x70000000) is inside the low
+# 2GiB; it also matches the adapt-417 PORTCHECK demo.  The arch string
+# is consumed twice: the ChibiOS makefile side gets the MCU_* keys below
+# (rules.mk builds -march=$(MCU_ARCH) for the HAL/ChibiOS objects) and
+# the ArduPilot side gets CPU_FLAGS in mcu{}; define it once here so the
+# two can never drift apart.
+MCU_ARCH = "rv32imafc_zba_zbb_zbc_zbs_xw"
+MCU_ABI = "ilp32f"
+MCU_CMODEL = "medlow"
+
 # additional build information for ChibiOS (adapt-417 port layout)
 build = {
     "CHIBIOS_STARTUP_MK"  : "os/common/startup/RISCV-ECLIC/compilers/GCC/mk/startup_ch32h417.mk",
     "CHIBIOS_PLATFORM_MK" : "os/hal/ports/WCH/CH32H417/platform.mk",
     "CHIBIOS_BOARD_MK"    : "os/hal/boards/CUSTOM_CH32H417/board.mk",
     "CHIBIOS_RISCV"       : "yes",
-    "MCU_ARCH"            : "rv32imafc_zba_zbb_zbc_zbs_xw",
-    "MCU_ABI"             : "ilp32",
-    "MCU_CMODEL"          : "medlow",
+    "MCU_ARCH"            : MCU_ARCH,
+    "MCU_ABI"             : MCU_ABI,
+    "MCU_CMODEL"          : MCU_CMODEL,
+    "USE_OPT"			  : "-fno-builtin-strlen-strncmp",
     }
 
 # MCU parameters
@@ -53,63 +67,35 @@ mcu = {
     # the ESIG block, point this at that address instead.
     'UDID_START' : 0x1FFFF704,
 
-    # adapt-417 ships a TRNGv1 low level driver, so ArduPilot's Util.cpp
-    # can take the true-random path instead of the get_random16() fallback.
-    # chibios_hwdef.py skips its non-H7 "FALSE" default when the key is
-    # present in DEFINES.
-    'DEFINES' : {
-        'HAL_USE_HW_RNG' : 'TRUE',
-    },
-
-    # The CH32H417 routes every peripheral request through its DMAMUX: any
-    # request can be fed into any of the 16 DMA channels (RM table 10-2).
-    # Setting DMA_Map to None makes dma_resolver.py take its generic
-    # generate_DMAMUX_map() path, which allocates (controller, stream) pairs
-    # 1..2 / 0..7; the hwdef.h compatibility block re-maps that encoding onto
-    # the CH32 linear channel index 0..15 and maps the resolver's
-    # STM32_DMAMUX1_* request names onto the CH32 1-based request numbers.
-    'DMA_Map' : None,
-
     # ---- flash windows ----
     # Internal CodeFlash XIP window.  V3F owns 0x00000000..0x0000FFFF,
     # the V5F bootloader starts at 0x00010000 (zero wait states).
-    'FLASH_BASE' : 0x00010000,
+    'FLASH_BASE' : 0x00001000,
     'FLASH_SIZE_KB' : 960,
     # External NOR flash on QSPI2, memory mapped (XIP) at 0x70000000.
+    # Only used when the board's hwdef.dat sets EXT_FLASH_SIZE_MB;
+    # write_ch32_ldscript() then links the flight image against this
+    # window instead of the internal CodeFlash one.
     'EXT_FLASH_BASE' : 0x70000000,
-    'EXT_FLASH_SIZE_MB' : 4,
     # Bootloader budget inside the internal CodeFlash.
-    'FLASH_BOOTLOADER_MAX_KB' : 256,
+    'FLASH_BOOTLOADER_MAX_KB' : 60,
 
-    # ---- exact RAM regions, in bytes ----
-    # Consumed by write_ch32_ldscript() to emit the MEMORY block.
-    #  ITCM  0x200A0000..0x200C0000  128K   hot code (.itcm*)
-    #  DTCM  0x200C0000..0x20100000  256K   first 512B HW-owned, so the
-    #        usable window starts at 0x200C0200
-    #  SRAM  0x20100000..0x20180000  512K   V3F owns the first 128K,
-    #        V5F uses 0x20120000..0x20180000 (384K)
-    'CH32_MEMORY' : {
-        'itcm' : (0x200A0000, 0x20000),
-        'dtcm' : (0x200C0200, 0x3FE00),
-        'sram' : (0x20120000, 0x60000),
-        },
-
-    # General purpose (DMA capable) pool.  The tightly coupled memories
-    # are not DMA capable on this part, so only shared SRAM is listed.
     'RAM_MAP' : [
-        (0x20120000, 384, 1),
+        (0x20100000, 512, 3),  # shared SRAM: .sram/.ram2 static at base, heap tail
         ],
     'RAM_MAP_BOOTLOADER' : [
-        (0x20120000, 384, 1),
+        (0x20100000, 512, 3),  # shared SRAM: default heap (= linker HEAP_RAM)
         ],
     'RAM_MAP_EXTERNAL_FLASH' : [
-        (0x20120000, 384, 1),
+        (0x20100000, 512, 3),  # shared SRAM: default heap (= linker HEAP_RAM)
         ],
 
-    # Standard hwdef keys (also used by write_ldscript()'s ARM path, kept
-    # consistent so other consumers of the MCU dict see sane values).
+    # Linker regions for write_ch32_ldscript(): instram = ITCM (all hot
+    # code), flashram = shared SRAM (.sram* code + .ram2 buffers + the
+    # default heap tail; must stay identical to RAM_MAP[0]), ram0 = DTCM
+    # (data, bss, stacks - no heap).
     'INSTRUCTION_RAM' : (0x200A0000, 128),
-    'FLASH_RAM' : (0x20120000, 384),
+    'FLASH_RAM' : (0x20100000, 512),
     'DATA_RAM' : (0x200C0200, 255),
 
     'EXPECTED_CLOCK' : 400000000,
@@ -117,22 +103,35 @@ mcu = {
     'DEFINES' : {
         'CH32H417' : '1',
         'HAL_HAVE_HARDWARE_DOUBLE' : '0',
+        'HAL_USE_HW_RNG' : 'TRUE',
         # adapt-417 crt0 defaults to copying the entire .text into ITCM;
-        # the flight image is XIP from QSPI2, so only .itcm*/.sram* are
-        # relocated by crt1.  This is added to the compiler command line.
+        # the flight image is XIP from the internal CodeFlash (0x00010000),
+        # so only .itcm*/.sram* are relocated by crt1.  This is added to
+        # the compiler command line.
         'CRT0_INIT_TEXT' : '0',
+        # icache address-space strategy (crt0.S, CSR 0xBC2).  The
+        # internal-CodeFlash layout executes XIP at 0x00010000, covered
+        # by CODE_AREA (0x00000000-0x1FFFFFFF).  MEM0 (the QSPI XIP
+        # window at 0x70000000) is deliberately NOT set here: crt0.S
+        # only reads these switches from the command line and the
+        # hwdef.h mcu block precedes the board defines, so a board
+        # running from QSPI must set 'define PORT_RISCV_ICACHE_MEM0_AREA
+        # TRUE' in its hwdef.dat (see CCHv6c/hwdef.dat on the external
+        # layout).  MEM1 is unused on this part.
+        # SRAM_AREA stays 0: ITCM/DTCM/SRAM are zero-wait and uncached, so
+        # the cache never holds stale lines for the crt1-relocated code.
+        "PORT_RISCV_ICACHE_ENABLE":"1",
+        "PORT_RISCV_ICACHE_CODE_AREA":"1",
+        "PORT_RISCV_ICACHE_SRAM_AREA":"0",
+        "PORT_RISCV_ICACHE_MEM1_AREA":"0",
         },
 
-    # QingKe V5F: RV32IMAF + Zba/Zbb/Zbc/Zbs + WCH xw vendor extension.
-    # medlow is valid here because the XIP window (0x70000000) is inside
-    # the low 2GiB; it also matches the adapt-417 PORTCHECK demo.
-    'CPU_FLAGS' : '-march=rv32imafc_zba_zbb_zbc_zbs_xw -mabi=ilp32 -mcmodel=medlow',
+    # derived from the module-level MCU_ARCH/MCU_ABI/MCU_CMODEL above
+    'CPU_FLAGS' : '-march=%s -mabi=%s -mcmodel=%s' % (MCU_ARCH, MCU_ABI, MCU_CMODEL),
     'CORTEX' : 'QingKe-V5F',
 
-    # Both images use the same section rules; the generated ldscript.ld
-    # aliases "default_flash" to the internal or the external window.
     'LINKER_CONFIG' : 'common_ch32.ld',
-    'LINKER_CONFIG_BOOTLOADER' : 'common_ch32.ld',
+    'LINKER_CONFIG_BOOTLOADER' : 'common_ch32_boot.ld',
     }
 
 # CH32H417 has a DMAMUX: DMA channels are allocated dynamically.

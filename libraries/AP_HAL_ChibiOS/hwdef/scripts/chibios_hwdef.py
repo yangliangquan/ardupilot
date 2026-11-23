@@ -1549,15 +1549,36 @@ INCLUDE common.ld
     def write_ch32_ldscript(self, fname):
         '''Generate ldscript.ld for the CH32H417 RISC-V port.
 
-        The flight image executes in place from the external QSPI2 XIP
-        window while the bootloader executes from the internal CodeFlash.
-        Both use the same common_ch32.ld section rules; only the MEMORY
-        block and (for the bootloader) a REGION_ALIAS differ.
+        The flight image uses common_ch32.ld and its XIP window is
+        chosen by the board's hwdef.dat: with EXT_FLASH_SIZE_MB set the
+        image links against the external QSPI XIP window (EXT_FLASH_BASE
+        from the MCU description), otherwise it stays in the internal
+        CodeFlash above the bootloader budget.  The bootloader always
+        uses common_ch32_boot.ld (text VMA in ITCM, data in DTCM) with
+        crt0 copying .text, which needs the CRT0_INIT_TEXT=1 build flag
+        below.
         '''
-        mem = self.get_mcu_config('CH32_MEMORY', True)
-        itcm_base, itcm_len = mem['itcm']
-        dtcm_base, dtcm_len = mem['dtcm']
-        sram_base, sram_len = mem['sram']
+        # The static linker regions come from the standard keys; only
+        # RAM_MAP[0] (the default heap) is emitted as a MEMORY region,
+        # and it must stay disjoint from everything holding copied code
+        # (.itcm*/.sram*) or static data; see CH32H417xx.py.
+        instruction_ram = self.get_mcu_config('INSTRUCTION_RAM', True)
+        flash_ram = self.get_mcu_config('FLASH_RAM', True)
+        data_ram = self.get_mcu_config('DATA_RAM', True)
+        itcm_base, itcm_len = instruction_ram[0], instruction_ram[1] * 1024
+        sram_base, sram_len = flash_ram[0], flash_ram[1] * 1024
+        dtcm_base, dtcm_len = data_ram[0], data_ram[1] * 1024
+
+        # malloc.c treats RAM_MAP[0] as the linker's HEAP_RAM default
+        # heap (it is never rebuilt from the map; the real range comes
+        # from __heap_base__/__heap_end__).  On CH32 that heap shares
+        # the flashram region, so RAM_MAP[0] must name exactly FLASH_RAM
+        # or mem_is_dma_safe()/memory_flush_all() describe the wrong
+        # range.  get_ram_map() picks the bootloader variant for
+        # bootloader builds.
+        ram_map = self.get_ram_map()
+        if not ram_map or (ram_map[0][0], ram_map[0][1]) != (flash_ram[0], flash_ram[1]):
+            self.error("CH32H417: RAM_MAP[0] must match FLASH_RAM (the HEAP_RAM region)")
 
         ext_flash_base = self.get_mcu_config('EXT_FLASH_BASE', False)
         ext_flash_reserve_start = self.get_config('EXT_FLASH_RESERVE_START_KB', default=0, type=int)
@@ -1574,12 +1595,17 @@ INCLUDE common.ld
         self.env_vars['EXT_FLASH_RESERVE_START_KB'] = str(ext_flash_reserve_start)
         self.env_vars['FLASH_RESERVE_START_KB'] = str(self.get_config(
             'FLASH_RESERVE_START_KB', default=0, type=int))
-        self.env_vars['HAS_EXTERNAL_FLASH_SECTIONS'] = 0 if self.is_bootloader_fw() else 1
+        self.env_vars['HAS_EXTERNAL_FLASH_SECTIONS'] = 0 if self.is_bootloader_fw() else 1 if ext_flash_len_kb != 0 else 0
         self.env_vars['FLASH_TOTAL'] = ext_flash_len_kb * 1024
 
         self.progress("Generating ldscript.ld (CH32H417 RISC-V)")
         with open(fname, 'w') as f:
             if self.is_bootloader_fw():
+                # common_ch32_boot.ld links .text with VMA in ITCM; crt0
+                # must copy it there (overrides the flight default of 0,
+                # which chibios_board.mk passes to both the C compiler
+                # and the assembler).
+                self.build_flags.append('CRT0_INIT_TEXT=1')
                 f.write('''/* generated ldscript.ld - CH32H417 internal-flash bootloader */
 MEMORY
 {
@@ -1589,24 +1615,34 @@ MEMORY
     ram0     (wx)  : org = 0x%08x, len = %u
 }
 
-/* common_ch32.ld targets default_flash for the XIP image; the bootloader
-   executes from the internal CodeFlash instead.  It carries no cold code,
-   so the cold-flash window is aliased away onto its own flash. */
+/* common_ch32_boot.ld keeps .crt0 and the load images in default_flash
+   and runs everything else from ITCM/DTCM. */
 REGION_ALIAS("default_flash", flash);
 
 INCLUDE common.ld
 ''' % (int_flash_base, boot_flash_len_kb,
        itcm_base, itcm_len, sram_base, sram_len, dtcm_base, dtcm_len))
             else:
-                app_base = int_flash_base + boot_flash_len_kb * 1024
-                codeflash_end = int_flash_size_kb * 1024
-                if codeflash_end <= app_base:
-                    self.error("CH32H417 app window is empty: bootloader "
-                               "budget covers the whole CodeFlash")
-                f.write('''/* generated ldscript.ld - CH32H417 internal CodeFlash XIP + QSPI2 cold */
+                if ext_flash_base is not None and ext_flash_len_kb > 0:
+                    # hwdef.dat configured EXT_FLASH: the flight image
+                    # XIPs from the external QSPI window.
+                    app_base = ext_flash_base + ext_flash_reserve_start * 1024
+                    app_len_kb = ext_flash_len_kb
+                    window = "external QSPI XIP"
+                else:
+                    # No EXT_FLASH in hwdef.dat: keep the image in the
+                    # internal CodeFlash above the bootloader budget.
+                    app_base = int_flash_base + boot_flash_len_kb * 1024
+                    codeflash_end = int_flash_size_kb * 1024
+                    if codeflash_end <= app_base:
+                        self.error("CH32H417 app window is empty: bootloader "
+                                   "budget covers the whole CodeFlash")
+                    app_len_kb = (codeflash_end - app_base) // 1024
+                    window = "internal CodeFlash XIP"
+                f.write('''/* generated ldscript.ld - CH32H417 %s */
 MEMORY
 {
-    /* Application XIP window in the internal CodeFlash (zero wait). */
+    /* Application XIP window selected from hwdef.dat EXT_FLASH config. */
     default_flash (rx)  : org = 0x%08x, len = %uK
     instram       (rwx) : org = 0x%08x, len = %u
     flashram      (rwx) : org = 0x%08x, len = %u
@@ -1614,7 +1650,7 @@ MEMORY
 }
 
 INCLUDE common.ld
-''' % (app_base, (codeflash_end - app_base) // 1024,
+''' % (window, app_base, app_len_kb,
        itcm_base, itcm_len, sram_base, sram_len, dtcm_base, dtcm_len))
 
     def copy_common_linkerscript(self, outpath):

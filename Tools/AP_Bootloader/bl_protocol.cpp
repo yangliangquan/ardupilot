@@ -43,13 +43,17 @@
 #include <AP_Math/AP_Math.h>
 #include <AP_Math/crc.h>
 #include "ch.h"
+#include "chlists.h"
+#include "chprintf.h"
 #include "hal.h"
+#include "hal_serial_lld.h"
 #include "hwdef.h"
 
 #include "bl_protocol.h"
 #include "support.h"
 #include "can.h"
 #include <AP_HAL_ChibiOS/hwdef/common/watchdog.h>
+#include <cstdint>
 #if EXT_FLASH_SIZE_MB
 #include <AP_FlashIface/AP_FlashIface_JEDEC.h>
 #endif
@@ -290,7 +294,11 @@ jump_to_app()
      * we should try booting it.
      */
     for (uint8_t i=0; i<RESERVE_LEAD_WORDS; i++) {
+#if defined(CH32H417)
+        if (app_base[i] == 0xe339e339) {
+#else
         if (app_base[i] == 0xffffffff) {
+#endif
             goto exit;
         }
     }
@@ -730,7 +738,11 @@ bootloader(unsigned timeout)
 
             // verify the erase
             for (address = 0; address < board_info.fw_size; address += 4) {
+#if defined(CH32H417)
+                if (flash_func_read_word(address) != 0xe339e339) {
+#else
                 if (flash_func_read_word(address) != 0xffffffff) {
+#endif
                     goto cmd_fail;
                 }
             }
@@ -977,7 +989,14 @@ bootloader(unsigned timeout)
                 uint8_t n = MIN(sizeof(first_words)-address, arg);
                 memcpy(&first_words[address/4], &flash_buffer.w[0], n);
                 // replace first words with 1 bits we can overwrite later
+#if defined(CH32H417)
+                for(uint32_t i = 0; i < n; i++)
+                {
+                    flash_buffer.c[i] = i % 2 ? 0xe3 : 0x39;
+                }
+#else
                 memset(&flash_buffer.w[0], 0xFF, n);
+#endif
             }
 #endif
             arg /= 4;
@@ -1005,18 +1024,24 @@ bootloader(unsigned timeout)
 
             // compute CRC of the programmed area
             uint32_t sum = 0;
-
             for (unsigned p = 0; p < board_info.fw_size; p += 4) {
                 uint32_t bytes;
 
-#if !BOOT_FROM_EXT_FLASH
+    #if !BOOT_FROM_EXT_FLASH
+    #if defined(CH32H417)
+                if (p < sizeof(first_words) && first_words[0] != 0xe339e339) {
+    #else
                 if (p < sizeof(first_words) && first_words[0] != 0xFFFFFFFF) {
-                    bytes = first_words[p/4];
+    #endif
+                    bytes = first_words[p / 4];
                 } else
-#endif
+    #endif
                 {
                     bytes = flash_func_read_word(p);
                 }
+#if defined(CH32H417)
+                if(p >= address && bytes == 0xe339e339) bytes = 0xffffffff;
+#endif
                 sum = crc32_small(sum, (uint8_t *)&bytes, sizeof(bytes));
             }
 
@@ -1315,7 +1340,11 @@ bootloader(unsigned timeout)
             }
 
             // program the deferred first word
-            if (first_words[0] != 0xffffffff) {
+#if defined (CH32H417)
+            if (first_words[0] != 0xe339e339){
+#else
+            if (first_words[0] != 0xffffffff){
+#endif
 #if !BOOT_FROM_EXT_FLASH
                 if (!flash_write_buffer(0, first_words, RESERVE_LEAD_WORDS)) {
                     goto cmd_fail;

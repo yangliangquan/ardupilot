@@ -1,7 +1,10 @@
 # hw definition file for processing by chibios_hwdef.py
 # for the CCH-v6c hardware (WCH CH32H417, Pixhawk v6C-compatible layout)
-# BOOTLOADER build: runs from internal CodeFlash, loads the app into the
-# external QSPI flash (4MB Winbond treated as 4MB, mapped at 0x70000000)
+# BOOTLOADER build: runs from internal CodeFlash (0x00001000..0x00010000)
+# and programs the flight image into the internal CodeFlash app window at
+# 0x00010000 through the offset-mapped programming alias 0x08000000
+# (wrapped by hwdef/common/flash_ch32.c).  QSPI2 is not used to store the
+# app image on this branch.
 
 # MCU class and specific type
 MCU CH32H417xx CH32H417xx
@@ -16,20 +19,32 @@ USB_PRODUCT 0x0053 # FIXME: provisional
 # board ID. See Tools/AP_Bootloader/board_types.txt
 APJ_BOARD_ID TARGET_HW_CCH_V6C
 
-# bootloader is installed at zero offset (of its CodeFlash window)
+# The 4K V3 stub before the bootloader is already accounted for by
+# FLASH_BASE (0x00001000) in CH32H417xx.py: it drives both the bootloader
+# ldscript org and FLASH_LOAD_ADDRESS.  FLASH_RESERVE_START_KB must stay 0
+# here or APP_START_ADDRESS would double-count the stub and land at
+# 0x00011000 instead of the app link address 0x00010000.
 FLASH_RESERVE_START_KB 0
 
-# the bootloader image budget in internal CodeFlash (image runs from the
-# zero-wait alias window; see the ldscript)
-FLASH_BOOTLOADER_LOAD_KB 256
+# the bootloader image budget in internal CodeFlash.  write_ch32_ldscript
+# derives the app window from FLASH_BASE (0x00001000) +
+# FLASH_BOOTLOADER_MAX_KB (60 in CH32H417xx.py), so the app is linked at
+# 0x00010000 and APP_START_ADDRESS (= FLASH_LOAD_ADDRESS +
+# FLASH_BOOTLOADER_LOAD_KB) must stay consistent with that.
+FLASH_BOOTLOADER_LOAD_KB 60
+
+APP_START_OFFSET_KB 0
 
 # internal CodeFlash, 960KB in DBMODE=1
 FLASH_SIZE_KB 960
 
-# External flash (QSPI2 mapped window @0x70000000): the app lives there
-EXT_FLASH_SIZE_MB 4
-EXT_FLASH_RESERVE_START_KB 0
-EXT_FLASH_RESERVE_END_KB 0
+# the bootloader programs the whole CodeFlash through the ChibiOS EFL lld
+# (wrapped by hwdef/common/flash_ch32.c): page granularity (4K/8K) follows
+# FLASH_CFGR0.DBMODE and is detected at runtime
+define HAL_USE_EFL TRUE
+define CH32H417_EFL_USE_EFL1 TRUE
+define CH32H417_EFL_BASE_ADDR 0x08000000
+define CH32H417_EFL_SIZE 0xF0000
 
 # order of UARTs (and USB)
 SERIAL_ORDER OTG1 USART3

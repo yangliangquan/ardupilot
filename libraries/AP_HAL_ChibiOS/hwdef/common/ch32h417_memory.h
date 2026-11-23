@@ -5,13 +5,13 @@
  *   Boot image : internal CodeFlash, V5F zero-wait window at 0x00010000
  *   App image  : external QSPI2 NOR flash, memory mapped (XIP) at
  *                0x70000000, 4 MiB
- *   Hot code   : ITCM 0x200A0000 (128K) and upper shared SRAM
- *                0x20120000 (384K), copied from the app image by crt1
+ *   Hot code   : ITCM 0x200A0000 (128K) and shared SRAM
+ *                0x20100000 (512K), copied from the app image by crt1
  *   Variables  : DTCM 0x200C0200 (.data/.bss/heap/stacks); the first
  *                512B of DTCM are hardware owned (HW stacking area)
  *
  * Keep these values in sync with:
- *   - hwdef/scripts/CH32H417xx.py  (CH32_MEMORY, EXT_FLASH_BASE)
+ *   - hwdef/scripts/CH32H417xx.py  (RAM_MAP, EXT_FLASH_BASE)
  *   - hwdef/common/common_ch32.ld  (section rules)
  */
 
@@ -42,8 +42,16 @@
 #define CH32H417_DTCM_RAM_BASE         (CH32H417_DTCM_BASE + CH32H417_DTCM_HW_RESERVED)
 #define CH32H417_DTCM_RAM_SIZE         ((256U * 1024U) - CH32H417_DTCM_HW_RESERVED)
 #define CH32H417_SRAM_BASE             0x20100000UL
-#define CH32H417_V5F_SRAM_BASE         0x20120000UL
-#define CH32H417_V5F_SRAM_SIZE         (384U * 1024U)
+#define CH32H417_SRAM_SIZE             (512U * 1024U)
+/* The V3F boot stub runs from the first 128K of the shared SRAM during
+   boot only (64K code at 0x20100000, 64K data/stack at 0x20110000, see
+   ChibiOS demos/WCH/V3F-BOOTSTUB).  It parks in WFI after releasing V5F
+   and is never woken again, so the app reclaims the whole 512K as one
+   region (FLASH_RAM = RAM_MAP[0]): .sram* code and .ram2 buffers link
+   from the base, the default heap takes the tail.  DTCM stays 100%
+   static .data/.bss/stacks. */
+#define CH32H417_V5F_SRAM_BASE         CH32H417_SRAM_BASE
+#define CH32H417_V5F_SRAM_SIZE         CH32H417_SRAM_SIZE
 
 /* Section attributes for code that must run at core speed.  These match the
    .itcm/.sram collectors in common_ch32.ld and the __*_FUNC__ macros that
