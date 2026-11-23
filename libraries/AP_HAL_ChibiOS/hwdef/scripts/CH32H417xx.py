@@ -51,7 +51,7 @@ build = {
     "MCU_ARCH"            : MCU_ARCH,
     "MCU_ABI"             : MCU_ABI,
     "MCU_CMODEL"          : MCU_CMODEL,
-    "USE_OPT"			  : "-fno-builtin-strlen-strncmp",
+    "USE_OPT"			  : "-fno-builtin-strlen -fno-builtin-strncmp",
     }
 
 # MCU parameters
