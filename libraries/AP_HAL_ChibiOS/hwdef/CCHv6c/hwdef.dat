@@ -45,6 +45,12 @@ define CH32H417_EFL_SIZE 0xF0000
 # FIXME(CH32): CMSIS-DSP is Cortex specific; disable FFT until the
 # RISC-V port of the DJ library is available
 define HAL_GYROFFT_ENABLED 0
+
+# EKF/EKF3 in single precision, same choice as SPRacingH7: the V5F is a
+# RV32 core with no FPU for doubles, double-precision EKF maths is
+# emulated in software.  Halves the EKF state memory and its .sram_init
+# footprint.
+define HAL_WITH_EKF_DOUBLE 0
 # 2026-11-21: default (MEM_CLASS_500) is 80KB of heap for the logger file
 # write buffer, allocated in AP_Vehicle::init_ardupilot() BEFORE ins.init -
 # it starved the IMU backend allocation once the code-relocation batches
