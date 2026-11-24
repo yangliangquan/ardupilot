@@ -233,6 +233,55 @@ SECTIONS
        The bulk-relocated members also drop their .rodata here so hot float
        constants and vtables are read from SRAM, not the flash bus.  NOTE:
        .srodata must stay in flash - it is addressed gp-relative. */
+
+    /* ---------------- semi-cold code demoted to XIP ----------------
+       Request-driven or low-rate blocks: the FatFS/SD logging write path,
+       GCS/MAVLink telemetry, arming/mission/param paths and niche CAN
+       extras.  Keeping them out of the SRAM/DTCM relocation lists is what
+       leaves room for the runtime heap: with them resident the heap
+       shrank to 64K and the logger IO thread failed to start ("Failed to
+       start Logger IO thread", ~50 bytes left).  On the QSPI layout they
+       XIP from the icache MEM0 window, on the internal CodeFlash layout
+       from cached internal flash; the bytes are in the load image either
+       way, so flash footprint is unchanged.  Placed before .sram_init and
+       .ram0_init so these explicit patterns win first-match against the
+       catch-all wildcards there. */
+    .sram_demote : ALIGN(4) SUBALIGN(4)
+    {
+        *libArduCopter_libs.a:AP_Baro_MS5611.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_ESC_Telem.cpp.0.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_ESC_Telem_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)
+        *libch.a:ff.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Logger_File.cpp.3.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:LogFile.cpp.0.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Logger_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Logger_MAVLink.cpp.0.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Filesystem.cpp.0.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Filesystem_FATFS.cpp.0.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:GCS_MAVLink.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:GCS_Common.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:GCS_MAVLink_Copter.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Param.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Arming.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Arming_Copter.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_Mission.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_GPS.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_NavEKF3_Logging.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:mode_zigzag.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:mode_turtle.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:mode_throw.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:mode_systemid.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:parameters.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:GCS_FTP.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:GCS_Param.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:MAVLink_routing.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_GPS_NMEA.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_DroneCAN_DNA_Server.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_SLCANIface.cpp.*.o(.text .text.* .rodata .rodata.*)
+        *libArduCopter_libs.a:AP_MAVLinkCAN.cpp.*.o(.text .text.* .rodata .rodata.*)
+        . = ALIGN(4);
+    } > default_flash
+
     .sram_init : ALIGN(4) SUBALIGN(4)
     {
         __ram2_init_text__ = LOADADDR(.sram_init);
@@ -280,8 +329,6 @@ SECTIONS
         *libArduCopter_libs.a:NotchFilter.cpp.0.o(.rodata .rodata.*)
         *libArduCopter_libs.a:LowPassFilter.cpp.0.o(.rodata .rodata.*)
         *libArduCopter_libs.a:LowPassFilter2p.cpp.0.o(.rodata .rodata.*)
-        *libArduCopter_libs.a:GCS_MAVLink.cpp.0.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:GCS_Common.cpp.3.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:AP_Logger.cpp.3.o(.text .text.* .rodata .rodata.*)
         *Log.cpp.101.o(.text .text.* .rodata .rodata.*)
         *libm_nano.a:*.o(.text .text.* .rodata .rodata.*)
@@ -291,20 +338,15 @@ SECTIONS
         *ArduCopter/*.101.o(.text .text.* .rodata .rodata.*)
         /* --- per-loop support libraries (wildcards so a changed object
            suffix can never silently send them back to the XIP flash) --- */
-        *AP_Param.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *AP_Arming.cpp.*.o(.text .text.* .rodata .rodata.*)
         *AP_BattMonitor.cpp.*.o(.text .text.* .rodata .rodata.*)
         *AP_RCProtocol.cpp.*.o(.text .text.* .rodata .rodata.*)
         *AP_Notify.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *AP_Mission.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *AP_GPS.cpp.*.o(.text .text.* .rodata .rodata.*)
         /* --- bisect Test A (2026-11-21): batch3 subset, ~10.8K, keeps the
            heap at 156.8K (= the known-good 01:14 build).  If the IMU dies
            with this build the heap is exonerated and one of these five
            objects is the culprit. --- */
         *libArduCopter_libs.a:SCurve.cpp.3.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:AP_AHRS_NavEKF3.cpp.0.o(.text .text.*)
-        *libArduCopter_libs.a:AP_NavEKF3_Logging.cpp.3.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:crc.cpp.0.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:print_vprintf.cpp.0.o(.text .text.* .rodata .rodata.*)
         /* --- ITCM fill objects' .rodata (their .text goes to .itcm_init
@@ -315,19 +357,10 @@ SECTIONS
         *libArduCopter_libs.a:GPIO.cpp.3.o(.rodata .rodata.*)
         *libArduCopter_libs.a:GPS_Backend.cpp.0.o(.rodata .rodata.*)
         /* --- batch3 remainder (2026-11-21): baro/ESC/GPS-RC frontends and
-           the SD logging write path (FatFS + AP_Logger file backends +
-           FATFS filesystem layer); viable since HAL_LOGGING_FILE_BUFSIZE 32
-           freed the heap.  chibios_hwdef.py fills the marker below with the
-           object rules on the internal-CodeFlash layout and leaves it empty
-           on the QSPI XIP layout, where the same block is demoted to the
-           .sram_demote section below (the full firmware overflows the 512K
-           SRAM by ~20K and none of it is on the per-loop path).  GNU ld has
-           no conditional section placement, hence the marker. --- */
-        /* @BATCH3_SRAM@ */
+           the SD logging write path - now demoted to .sram_demote above
+           (see the heap note there). --- */
         . = ALIGN(4);
     } > flashram AT > default_flash
-
-    /* @BATCH3_XIP@ */
 
     /* ---------------- CRT1 area 0: DTCM hot code ----------------
        Third code layer.  ITCM (128K) and shared SRAM (512K minus heap)
@@ -361,10 +394,7 @@ SECTIONS
         *libArduCopter_libs.a:AP_Vehicle.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:HAL_ChibiOS_Class.cpp.*.o(.text .text.* .rodata .rodata.*)
         /* --- request-driven GCS handlers, the NMEA fallback frontend and
-           the niche CAN extras: chibios_hwdef.py fills the marker below
-           with these rules on the internal layout and leaves it empty on
-           the QSPI layout, where they demote to .sram_demote. --- */
-        /* @RAM0_INIT_EXTRA@ */
+           the niche CAN extras: demoted to .sram_demote above. --- */
         /* --- misc per-loop helpers --- */
         *libArduCopter_libs.a:Util.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:Location.cpp.*.o(.text .text.* .rodata .rodata.*)
