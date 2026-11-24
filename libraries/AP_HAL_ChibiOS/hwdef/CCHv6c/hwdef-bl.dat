@@ -1,9 +1,10 @@
 # hw definition file for processing by chibios_hwdef.py
 # for the CCH-v6c hardware (WCH CH32H417, Pixhawk v6C-compatible layout)
 # BOOTLOADER build: runs from internal CodeFlash (0x00001000..0x00010000)
-# and programs the flight image into the app-image NOR flash on QSPI2.
-# EXT_FLASH_SIZE_MB below makes the script emit BOOT_FROM_EXT_FLASH and
-# point APP_START_ADDRESS at the QSPI XIP window (0x70000000).
+# and programs the flight image into the internal CodeFlash app window at
+# 0x00010000 through the offset-mapped programming alias 0x08000000
+# (wrapped by hwdef/common/flash_ch32.c).  QSPI2 is not used to store the
+# app image on this branch.
 
 # MCU class and specific type
 MCU CH32H417xx CH32H417xx
@@ -87,12 +88,6 @@ PB14 QUADSPI2_SIOX3 QUADSPI2 SPEED_HIGH
 
 # the app-image NOR flash on QSPI2 (32Mbit => 4MB, size as power of 2 = 22)
 QSPIDEV w25q QUADSPI2 MODE3 100*MHZ 22 0
-
-# app image lives in the QSPI NOR: this is the trigger for the script to
-# generate BOOT_FROM_EXT_FLASH and the external APP_START_ADDRESS
-EXT_FLASH_SIZE_MB 4
-EXT_FLASH_RESERVE_START_KB 0
-EXT_FLASH_RESERVE_END_KB 0
 
 # LEDs
 PD10 LED_ACTIVITY OUTPUT OPENDRAIN GPIO(90) HIGH # red
