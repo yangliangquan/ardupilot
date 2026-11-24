@@ -1668,6 +1668,62 @@ INCLUDE common.ld
             else:
                 linker = 'common_extf.ld'
         shutil.copy(os.path.join(dirpath, "../common", linker), outpath)
+        if linker == 'common_ch32.ld':
+            self.fill_ch32_layout_markers(outpath)
+
+    # Objects that are SRAM/DTCM-resident on the internal CodeFlash
+    # layout but demote to XIP from the icache-covered QSPI window on the
+    # external layout: the full firmware overflows the 512K SRAM (~20K)
+    # and the 256K DTCM, and none of these blocks is on the per-loop
+    # path.  GNU ld has no conditional section placement, so
+    # common_ch32.ld carries markers filled in here.
+    CH32_BATCH3_OBJECTS = [
+        "*libArduCopter_libs.a:AP_Baro_MS5611.cpp.*.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_ESC_Telem.cpp.0.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_ESC_Telem_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)",
+        "*libch.a:ff.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_Logger_File.cpp.3.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:LogFile.cpp.0.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_Logger_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_Logger_MAVLink.cpp.0.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_Filesystem.cpp.0.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_Filesystem_FATFS.cpp.0.o(.text .text.* .rodata .rodata.*)",
+    ]
+    CH32_RAM0_DEMOTE_OBJECTS = [
+        "*libArduCopter_libs.a:GCS_FTP.cpp.*.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:GCS_Param.cpp.*.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:MAVLink_routing.cpp.*.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_GPS_NMEA.cpp.*.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_DroneCAN_DNA_Server.cpp.*.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_SLCANIface.cpp.*.o(.text .text.* .rodata .rodata.*)",
+        "*libArduCopter_libs.a:AP_MAVLinkCAN.cpp.*.o(.text .text.* .rodata .rodata.*)",
+    ]
+
+    def fill_ch32_layout_markers(self, outpath):
+        ext_flash = bool(self.get_config('EXT_FLASH_SIZE_MB', default=0, type=int))
+        pats = "\n        ".join(self.CH32_BATCH3_OBJECTS)
+        r0pats = "\n        ".join(self.CH32_RAM0_DEMOTE_OBJECTS)
+        if ext_flash:
+            sram = "/* batch3 demoted to .sram_demote below (QSPI XIP layout) */"
+            ram0 = "/* GCS/NMEA/CAN-extras demoted to .sram_demote below */"
+            xip = ('/* QSPI XIP layout: the batch3 SD-logging block and the\n'
+                   '   demoted ram0_init objects XIP from the icache MEM0\n'
+                   '   window.  Kept before .ram0_init/.text so the patterns\n'
+                   '   win first-match placement against the catch-alls. */\n'
+                   '    .sram_demote : ALIGN(4) SUBALIGN(4)\n'
+                   '    {\n        ' + pats + '\n        ' + r0pats + '\n'
+                   '        . = ALIGN(4);\n    } > default_flash')
+        else:
+            sram = pats
+            ram0 = r0pats
+            xip = ""
+        with open(outpath, "r") as f:
+            text = f.read()
+        text = text.replace("/* @BATCH3_SRAM@ */", sram)
+        text = text.replace("/* @BATCH3_XIP@ */", xip)
+        text = text.replace("/* @RAM0_INIT_EXTRA@ */", ram0)
+        with open(outpath, "w") as f:
+            f.write(text)
 
     def get_USB_IDs(self):
         '''return tuple of USB VID/PID'''

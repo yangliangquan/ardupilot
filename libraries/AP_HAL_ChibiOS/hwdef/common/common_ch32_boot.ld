@@ -19,9 +19,8 @@
  *
  * The image boots XIP at ORIGIN(default_flash): the V3F stub releases
  * the V5F core there, crt0 (.crt0 section) then copies the .text image
- * from its flash LMA into ITCM (crt0.S CRT0_INIT_TEXT == TRUE, build
- * with -DCRT0_INIT_TEXT=1; chibios_hwdef.py adds it to the bootloader
- * build flags) and continues execution from ITCM.  Running from ITCM
+ * from its flash LMA into ITCM (the always-compiled crt0.S copy loop
+ * triggers on VMA != LMA) and continues execution from ITCM.  Running from ITCM
  * also keeps the bootloader off the CodeFlash bus while it programs
  * that same flash.
  *

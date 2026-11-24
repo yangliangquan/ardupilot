@@ -47,13 +47,12 @@
  * The ChibiOS adapt-417 crt0.S/crt1.c do all runtime relocation:
  *   - crt0 copies .data and clears .bss, using __textdata_base__,
  *     __data_base__/__data_end__, __bss_base__/__bss_end__ below.
- *   - crt1 __init_ram_areas() copies/zeroes the three areas 0..2 using
+ *   - crt0.S relocates the three areas 0..2 with inline assembly using
  *     __ramN_init_text__, __ramN_init__, __ramN_clear__, __ramN_noinit__.
  *     Area 0 = DTCM, area 1 = ITCM, area 2 = shared SRAM.
  *
- * IMPORTANT: build with -DCRT0_INIT_TEXT=0.  adapt-417 defaults it to TRUE
- * so a standalone demo can copy its whole .text into ITCM; here the image
- * is XIP from CodeFlash and only the opted-in sections are relocated.
+ * NOTE: this image is XIP (VMA == LMA), so crt0.S's self-guarded .text
+ * copy loop skips it; only the opted-in RAM areas are relocated.
  *
  * This file is copied to build/common.ld and INCLUDEd by the hwdef-generated
  * ldscript.ld, which defines the MEMORY regions and, for the bootloader,
@@ -308,43 +307,17 @@ SECTIONS
         /* --- batch3 remainder (2026-11-21): baro/ESC/GPS-RC frontends and
            the SD logging write path (FatFS + AP_Logger file backends +
            FATFS filesystem layer); viable since HAL_LOGGING_FILE_BUFSIZE 32
-           freed the heap.  On the QSPI XIP layout (port) this block demotes
-           to the cached flash window instead: the full firmware overflows
-           the 512K SRAM by ~20K and none of it is on the per-loop path. --- */
-        IF (ORIGIN(default_flash) < 0x40000000)
-        *libArduCopter_libs.a:AP_Baro_MS5611.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_ESC_Telem.cpp.0.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_ESC_Telem_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)
-        *libch.a:ff.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_Logger_File.cpp.3.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:LogFile.cpp.0.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_Logger_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_Logger_MAVLink.cpp.0.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_Filesystem.cpp.0.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_Filesystem_FATFS.cpp.0.o(.text .text.* .rodata .rodata.*)
-        ENDIF
+           freed the heap.  chibios_hwdef.py fills the marker below with the
+           object rules on the internal-CodeFlash layout and leaves it empty
+           on the QSPI XIP layout, where the same block is demoted to the
+           .sram_demote section below (the full firmware overflows the 512K
+           SRAM by ~20K and none of it is on the per-loop path).  GNU ld has
+           no conditional section placement, hence the marker. --- */
+        /* @BATCH3_SRAM@ */
         . = ALIGN(4);
     } > flashram AT > default_flash
 
-    IF (ORIGIN(default_flash) >= 0x40000000)
-    /* port-only: the demoted batch3 block above, XIP from the icache MEM0
-       window.  Kept as its own section before .ram0_init/.text so the
-       patterns win first-match placement against the catch-alls. */
-    .sram_demote : ALIGN(4) SUBALIGN(4)
-    {
-        *libArduCopter_libs.a:AP_Baro_MS5611.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_ESC_Telem.cpp.0.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_ESC_Telem_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)
-        *libch.a:ff.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_Logger_File.cpp.3.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:LogFile.cpp.0.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_Logger_Backend.cpp.3.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_Logger_MAVLink.cpp.0.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_Filesystem.cpp.0.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_Filesystem_FATFS.cpp.0.o(.text .text.* .rodata .rodata.*)
-        . = ALIGN(4);
-    } > default_flash
-    ENDIF
+    /* @BATCH3_XIP@ */
 
     /* ---------------- CRT1 area 0: DTCM hot code ----------------
        Third code layer.  ITCM (128K) and shared SRAM (512K minus heap)
@@ -363,17 +336,13 @@ SECTIONS
         /* --- DroneCAN/CAN service stack: CAN1+CAN3 carry DroneCAN at
            1Mbit/s; the service threads run continuously --- */
         *libArduCopter_libs.a:AP_DroneCAN.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_DroneCAN_DNA_Server.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:AP_GPS_DroneCAN.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:AP_BattMonitor_DroneCAN.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:canard.c.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:AP_Canard_iface.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:CanIface.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_SLCANIface.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_MAVLinkCAN.cpp.*.o(.text .text.* .rodata .rodata.*)
         /* --- GPS frontends: parse every received byte of the streams --- */
         *libArduCopter_libs.a:AP_GPS_UBLOX.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:AP_GPS_NMEA.cpp.*.o(.text .text.* .rodata .rodata.*)
         /* --- compass and baro frontends: read on the main sensor loop --- */
         *libArduCopter_libs.a:AP_Compass.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:AP_Baro.cpp.*.o(.text .text.* .rodata .rodata.*)
@@ -381,10 +350,11 @@ SECTIONS
         *libArduCopter_libs.a:RC_Channel.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:AP_Vehicle.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:HAL_ChibiOS_Class.cpp.*.o(.text .text.* .rodata .rodata.*)
-        /* --- GCS request handlers and message routing --- */
-        *libArduCopter_libs.a:GCS_FTP.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:GCS_Param.cpp.*.o(.text .text.* .rodata .rodata.*)
-        *libArduCopter_libs.a:MAVLink_routing.cpp.*.o(.text .text.* .rodata .rodata.*)
+        /* --- request-driven GCS handlers, the NMEA fallback frontend and
+           the niche CAN extras: chibios_hwdef.py fills the marker below
+           with these rules on the internal layout and leaves it empty on
+           the QSPI layout, where they demote to .sram_demote. --- */
+        /* @RAM0_INIT_EXTRA@ */
         /* --- misc per-loop helpers --- */
         *libArduCopter_libs.a:Util.cpp.*.o(.text .text.* .rodata .rodata.*)
         *libArduCopter_libs.a:Location.cpp.*.o(.text .text.* .rodata .rodata.*)

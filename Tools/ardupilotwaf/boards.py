@@ -1566,11 +1566,6 @@ class chibios_riscv(chibios):
             '-fno-builtin-vfprintf',
             '-fno-builtin-puts',
             '-fno-math-errno',
-            # adapt-417 crt0.S defaults to copying the whole .text into
-            # ITCM.  The flight image is XIP in QSPI2 flash, so only the
-            # opted-in .itcm/.sram sections are relocated by crt1.
-            '-DCRT0_INIT_TEXT=0',
-            '-DCRT1_AREAS_NUMBER=3',
             '-Werror=deprecated-declarations',
             '-DNDEBUG=1'
         ]
