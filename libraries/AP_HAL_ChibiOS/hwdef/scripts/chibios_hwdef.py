@@ -1554,9 +1554,9 @@ INCLUDE common.ld
         image links against the external QSPI XIP window (EXT_FLASH_BASE
         from the MCU description), otherwise it stays in the internal
         CodeFlash above the bootloader budget.  The bootloader always
-        uses common_ch32_boot.ld (text VMA in ITCM, data in DTCM) with
-        crt0 copying .text, which needs the CRT0_INIT_TEXT=1 build flag
-        below.
+        uses common_ch32_boot.ld (text VMA in ITCM, data in DTCM); crt0
+        copies .text there automatically because the boot script gives
+        it a run address different from the load address.
         '''
         # The static linker regions come from the standard keys; only
         # RAM_MAP[0] (the default heap) is emitted as a MEMORY region,
@@ -1601,11 +1601,9 @@ INCLUDE common.ld
         self.progress("Generating ldscript.ld (CH32H417 RISC-V)")
         with open(fname, 'w') as f:
             if self.is_bootloader_fw():
-                # common_ch32_boot.ld links .text with VMA in ITCM; crt0
-                # must copy it there (overrides the flight default of 0,
-                # which chibios_board.mk passes to both the C compiler
-                # and the assembler).
-                self.build_flags.append('CRT0_INIT_TEXT=1')
+                # common_ch32_boot.ld links .text with VMA in ITCM; the
+                # always-compiled crt0 copy loop relocates it (guarded by
+                # __text_lma != __text_base__, so flight XIP images skip).
                 f.write('''/* generated ldscript.ld - CH32H417 internal-flash bootloader */
 MEMORY
 {

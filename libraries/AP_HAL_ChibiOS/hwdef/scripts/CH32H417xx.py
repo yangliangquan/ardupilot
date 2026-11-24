@@ -103,11 +103,6 @@ mcu = {
         'CH32H417' : '1',
         'HAL_HAVE_HARDWARE_DOUBLE' : '0',
         'HAL_USE_HW_RNG' : 'TRUE',
-        # adapt-417 crt0 defaults to copying the entire .text into ITCM;
-        # the flight image is XIP from the internal CodeFlash (0x00010000),
-        # so only .itcm*/.sram* are relocated by crt1.  This is added to
-        # the compiler command line.
-        'CRT0_INIT_TEXT' : '0',
         # icache address-space strategy (crt0.S, CSR 0xBC2).  The two
         # code windows are selected per layout in the board hwdef.dat,
         # the single point of control (the hwdef.h mcu block precedes

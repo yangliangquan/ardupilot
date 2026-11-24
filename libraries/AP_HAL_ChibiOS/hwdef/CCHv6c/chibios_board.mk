@@ -182,21 +182,14 @@ CPPWARN = -Wall -Wextra -Wundef -Werror
 # User defines
 #
 
-# The flight image is XIP from CodeFlash (CRT0_INIT_TEXT=0); the
-# bootloader build overrides this to 1 through CHIBIOS_BUILD_FLAGS
-# (chibios_hwdef.py) because its linker script links .text into ITCM.
-CRT0_INIT_TEXT ?= 0
+# crt0.S (adapt-417) always carries the ITCM/DTCM/SRAM relocation code:
+# the inline RAM-area loops are the default (CRT0_ASM_RAM_AREAS TRUE) and
+# the .text copy self-guards on __text_lma != __text_base__, so the XIP
+# flight image skips it and the ITCM-linked bootloader image runs it.
+# No CRT0_* defines need to reach the compiler or the assembler.
 
 UDEFS = $(ENV_UDEFS) $(FATFS_FLAGS) -DHAL_BOARD_NAME=\"$(HAL_BOARD_NAME)\" \
-        -DHAL_MAX_STACK_FRAME_SIZE=$(HAL_MAX_STACK_FRAME_SIZE) \
-        -DCRT0_INIT_TEXT=$(CRT0_INIT_TEXT) -DCRT1_AREAS_NUMBER=3
-
-# crt0.S is assembled from the ChibiOS library, so the .text copy switch
-# must also reach the assembler.  CRT0_ASM_RAM_AREAS=1 relocates the
-# three RAM areas with inline assembly instead of crt1's flash-resident
-# relocation table (stale-cache-safe boot path, see crt0.S); both
-# common_ch32.ld and common_ch32_boot.ld define the __ramN_*__ symbols.
-UADEFS = -DCRT0_INIT_TEXT=$(CRT0_INIT_TEXT) -DCRT0_ASM_RAM_AREAS=1
+        -DHAL_MAX_STACK_FRAME_SIZE=$(HAL_MAX_STACK_FRAME_SIZE)
 
 ifeq ($(ENABLE_ASSERTS),yes)
  UDEFS += -DHAL_CHIBIOS_ENABLE_ASSERTS
