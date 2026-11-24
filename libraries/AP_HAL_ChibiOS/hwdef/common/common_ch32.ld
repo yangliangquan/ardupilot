@@ -183,6 +183,16 @@ SECTIONS
         *libch.a:chsem.o(.text .text.*)
         *libch.a:chthreads.o(.text .text.*)
         *libch.a:chsys.o(.text .text.*)
+        /* the tick path itself: stGetCounter/stSetAlarm live in chtime.o,
+           chVTDoTickI/vt_set_alarm in chvt.o, chSysSwitch in chcoreasm.o.
+           without these the whole system-tick ISR ran from QSPI XIP and
+           the tick alone saturated the CPU. */
+        *libch.a:chtime.o(.text .text.*)
+        *libch.a:chvt.o(.text .text.*)
+        *libch.a:chcore.o(.text .text.*)
+        *libch.a:chcoreasm.o(.text .text.*)
+        *libch.a:chevents.o(.text .text.*)
+        *libch.a:chcond.o(.text .text.*)
         /* --- control math helpers: the emitted definitions live in
            control.cpp / AP_Math.cpp, matched with a wildcard so a changed
            object suffix cannot silently send them back to the XIP flash --- */
