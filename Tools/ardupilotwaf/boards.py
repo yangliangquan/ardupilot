@@ -1659,7 +1659,7 @@ class chibios_riscv(chibios):
         env.GIT_SUBMODULES += ['ChibiOS']
 
         env.INCLUDES += [
-            cfg.srcnode.find_dir('libraries/AP_GyroFFT/CMSIS_5/include').abspath(),
+            cfg.srcnode.find_dir('libraries/AP_GyroFFT/NMSIS/Include').abspath(),
             cfg.srcnode.find_dir('modules/lwip/src/include/compat/posix').abspath(),
         ]
 

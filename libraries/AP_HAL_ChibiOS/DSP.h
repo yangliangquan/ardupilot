@@ -21,7 +21,14 @@
 
 #if HAL_WITH_DSP
 
+#if defined(__riscv)
+// RISC-V targets (CH32H417) use the NMSIS DSP library; the arm_* -> riscv_*
+// symbol renames are set up in ch32_stm32_compat.h, which every translation
+// unit reaches through hwdef.h before this header is parsed.
+#include <riscv_math.h>
+#else
 #include <arm_math.h>
+#endif
 
 #define DEBUG_FFT   0
 

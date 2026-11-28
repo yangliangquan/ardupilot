@@ -813,11 +813,13 @@ def build(bld):
     DSP_LIBS = {
         'cortex-m4' : 'libarm_cortexM4lf_math.a',
         'cortex-m7' : 'libarm_cortexM7lfdp_math.a',
+        'QingKe-V5F' : 'libnmsis_dsp_rv32imafc.a',
     }
     if bld.env.CORTEX in DSP_LIBS:
         libname = DSP_LIBS[bld.env.CORTEX]
+        dsp_dir = 'NMSIS/lib' if libname.startswith('libnmsis_') else 'CMSIS_5/lib'
         # we need to copy the library on cygwin as it doesn't handle linking outside build tree
-        shutil.copyfile(os.path.join(bld.env.SRCROOT,'libraries/AP_GyroFFT/CMSIS_5/lib',libname),
+        shutil.copyfile(os.path.join(bld.env.SRCROOT,'libraries/AP_GyroFFT',dsp_dir,libname),
                         os.path.join(bld.env.BUILDROOT,'modules/ChibiOS/libDSP.a'))
         bld.env.LIB += ['DSP']
     bld.env.LIB += ['ch']
