@@ -251,7 +251,7 @@ DMA_PRIORITY ADC* SPI* USART* SDIO* I2C*
 define HAL_OS_FATFS_IO 1
 
 
-MAIN_STACK 0x2000
+MAIN_STACK 0x4000
 PROCESS_STACK 0x6000
 
 define AP_WATCHDOG_SAVE_FAULT_ENABLED 0
@@ -269,14 +269,14 @@ define CH_DBG_STACK_CHECKS TRUE
 
 
 define HAL_BARO_ALLOW_INIT_NO_BARO
-# define DISABLE_WATCHDOG TRUE
+define DISABLE_WATCHDOG TRUE
 define SCHED_LOOP_RATE 200
 
 # ---- flash fit trimming ----------------------------------------------------
 # The 896K CodeFlash window is tight; these disable optional peripherals and
 # flight modes.  Each is a standard ArduPilot config macro, re-enable by
 # deleting the line (and re-checking the size check at link time).
-define HAL_MINIMIZE_FEATURES 1
+include ../include/minimize_features.inc
 
 define AP_RANGEFINDER_ENABLED 0      // 测距雷达/激光，不用雷达必关
 define AP_FENCE_ENABLED 0            // 电子围栏，室内台架测试优先关；室外飞行如果不用围栏也可以关
