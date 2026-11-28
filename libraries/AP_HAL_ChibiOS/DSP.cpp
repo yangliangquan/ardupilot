@@ -70,9 +70,17 @@ void DSP::fft_start(FFTWindowState* state, FloatBuffer& samples, uint16_t advanc
 uint16_t DSP::fft_analyse(AP_HAL::DSP::FFTWindowState* state, uint16_t start_bin, uint16_t end_bin, float noise_att_cutoff)
 {
     FFTWindowStateARM* fft = (FFTWindowStateARM*)state;
+#if defined(__riscv)
+    // NMSIS does not export the CMSIS internals arm_cfft_radix8by2/by4_f32
+    // and stage_rfft_f32, so the complex FFT, bit-reversal and split stages
+    // run as a single riscv_rfft_fast_f32() call - which performs exactly the
+    // sequence of the three steps below (see also ch32_stm32_compat.h).
+    riscv_rfft_fast_f32(&fft->_fft_instance, fft->_freq_bins, fft->_rfft_data, 0);
+#else
     step_arm_cfft_f32(fft);
     step_bitreversal(fft);
     step_stage_rfft_f32(fft);
+#endif
     step_arm_cmplx_mag_f32(fft, start_bin, end_bin, noise_att_cutoff);
     return step_calc_frequencies_f32(fft, start_bin, end_bin);
 }
@@ -118,6 +126,10 @@ DSP::FFTWindowStateARM::FFTWindowStateARM(uint16_t window_size, uint16_t sample_
 
 DSP::FFTWindowStateARM::~FFTWindowStateARM() {}
 
+// CMSIS-internal FFT helpers; NMSIS (RISC-V) exports none of them, and on
+// that port the pipeline runs through riscv_rfft_fast_f32() in fft_analyse()
+// instead of the three steps below.
+#ifndef __riscv
 extern "C" {
     void stage_rfft_f32(arm_rfft_fast_instance_f32 *S, float32_t *p, float32_t *pOut);
     void arm_cfft_radix8by2_f32(arm_cfft_instance_f32 *S, float32_t *p1);
@@ -125,6 +137,7 @@ extern "C" {
     void arm_radix8_butterfly_f32(float32_t *pSrc, uint16_t fftLen, const float32_t *pCoef, uint16_t twidCoefModifier);
     void arm_bitreversal_32(uint32_t *pSrc, const uint16_t bitRevLen, const uint16_t *pBitRevTable);
 }
+#endif // __riscv
 
 // step 1: filter the incoming samples through a Hanning window
 void DSP::step_hanning(FFTWindowStateARM* fft, FloatBuffer& samples, uint16_t advance)
@@ -142,6 +155,7 @@ void DSP::step_hanning(FFTWindowStateARM* fft, FloatBuffer& samples, uint16_t ad
 }
 
 // step 2: guts of complex fft processing
+#ifndef __riscv
 void DSP::step_arm_cfft_f32(FFTWindowStateARM* fft)
 {
     arm_cfft_instance_f32 *Sint = &(fft->_fft_instance.Sint);
@@ -208,6 +222,7 @@ void DSP::step_stage_rfft_f32(FFTWindowStateARM* fft)
 
     TIMER_END(_stage_rfft_f32_timer);
 }
+#endif // __riscv
 
 // step 5: find the magnitudes of the complex data
 void DSP::step_arm_cmplx_mag_f32(FFTWindowStateARM* fft, uint16_t start_bin, uint16_t end_bin, float noise_att_cutoff)

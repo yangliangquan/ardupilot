@@ -413,6 +413,48 @@
 #define STM32_DMA_CR_DMEIE 0U
 
 /*
+ * DSP/FFT bridge: CMSIS-DSP (arm_math.h) names -> NMSIS (riscv_math.h) names.
+ *
+ * AP_HAL_ChibiOS/DSP.{h,cpp} is written against ARM's CMSIS-DSP.  The CH32
+ * build links the NMSIS library instead (Nuclei's RISC-V port of CMSIS-DSP,
+ * linked as modules/ChibiOS/libDSP.a by Tools/ardupilotwaf/chibios.py), which
+ * keeps the same tables and struct layouts but renames every symbol from the
+ * arm_ prefix to riscv_.  DSP.h includes riscv_math.h on RISC-V, so only the
+ * names used by the AP code need bridging here.
+ *
+ * Struct layouts are identical between the two libraries (verified against
+ * NMSIS Include/dsp/transform_functions.h):
+ *   riscv_rfft_fast_instance_f32 { Sint, fftLenRFFT, pTwiddleRFFT }
+ *   riscv_cfft_instance_f32      { fftLen, pTwiddle, pBitRevTable, bitRevLength }
+ * so the DSP.cpp field accesses carry over unchanged.
+ *
+ * Two naming/shape differences beyond the prefix are covered below:
+ *  - the selective rfft_fast init functions are ordered differently
+ *    (arm_rfft_32_fast_init_f32 vs riscv_rfft_fast_init_32_f32);
+ *  - NMSIS does not export the CMSIS internals arm_cfft_radix8by2/by4_f32 and
+ *    stage_rfft_f32, so DSP.cpp folds the complex-FFT + bit-reversal + split
+ *    stages into the public riscv_rfft_fast_f32() instead (guarded by
+ *    __riscv there) - those three helpers have no rename and are never
+ *    referenced on this port.
+ */
+#define arm_rfft_fast_instance_f32 riscv_rfft_fast_instance_f32
+#define arm_cfft_instance_f32 riscv_cfft_instance_f32
+/* selective rfft_fast initializers (ARM order: rfft_<len>_fast_init) */
+#define arm_rfft_32_fast_init_f32 riscv_rfft_fast_init_32_f32
+#define arm_rfft_64_fast_init_f32 riscv_rfft_fast_init_64_f32
+#define arm_rfft_128_fast_init_f32 riscv_rfft_fast_init_128_f32
+#define arm_rfft_256_fast_init_f32 riscv_rfft_fast_init_256_f32
+#define arm_rfft_512_fast_init_f32 riscv_rfft_fast_init_512_f32
+#define arm_rfft_1024_fast_init_f32 riscv_rfft_fast_init_1024_f32
+/* vector math helpers */
+#define arm_max_f32 riscv_max_f32
+#define arm_scale_f32 riscv_scale_f32
+#define arm_mean_f32 riscv_mean_f32
+#define arm_add_f32 riscv_add_f32
+#define arm_mult_f32 riscv_mult_f32
+#define arm_cmplx_mag_squared_f32 riscv_cmplx_mag_squared_f32
+
+/*
  * TIM complementary-output modes.  The WCH TIMv1 PWM LLD implements only
  * the generic PWM_OUTPUT_* modes; RCOutput still compares channel modes
  * against the complementary constants when applying SERVOn_POLARITY, so
