@@ -53,7 +53,7 @@ using namespace ChibiOS;
 
 extern const AP_HAL::HAL& hal;
 
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
 /*
  * CH32 TIM register-name aliases for the STM32-style member accesses in
  * this file.  The CH32H417 timer is F1-style: DMACFGR/DMAADR are the DCR/
@@ -73,7 +73,7 @@ extern const AP_HAL::HAL& hal;
 #define ARR  ATRLR
 #define CCMR1 CHCTLR1
 #define CCMR2 CHCTLR2
-#endif // __CH32H417_H
+#endif // CH32H417
 
 #if HAL_WITH_IO_MCU
 #include <AP_IOMCU/AP_IOMCU.h>
@@ -1000,6 +1000,12 @@ bool RCOutput::setup_group_DMA(pwm_group &group, uint32_t bitrate, uint32_t bit_
         // we don't do dma sharing in non advanced mode
         chSysLock();
         group.dma = dmaStreamAllocI(group.dma_up_stream_id, 10, dma_up_irq_callback, &group);
+#if defined(CH32H417) && STM32_DMA_SUPPORTS_DMAMUX
+        if (group.dma == nullptr) {
+            // with DMAMUX any free stream can carry the request
+            group.dma = dmaStreamAllocI(CH32_DMA_STREAM_ID_ANY, 10, dma_up_irq_callback, &group);
+        }
+#endif
         chSysUnlock();
         if (group.dma == nullptr) {
             print_group_setup_error(group, "failed to allocate DMA");
@@ -1069,7 +1075,7 @@ bool RCOutput::setup_group_DMA(pwm_group &group, uint32_t bitrate, uint32_t bit_
     const uint32_t freq = group.pwm_drv->clock / (prescaler + 1);
     // PSC is calculated by ChibiOS as (pwm_drv.clock / pwm_cfg.frequency) - 1;
     group.pwm_cfg.frequency = freq;
-#if !defined(__CH32H417_H)
+#if !defined(CH32H417)
     /*
      * The WCH TIMv1 PWMConfig has no dier/cr2 fields - it carries only
      * frequency/period/callback/channels - and pwm_lld_start() clears
@@ -1105,7 +1111,7 @@ bool RCOutput::setup_group_DMA(pwm_group &group, uint32_t bitrate, uint32_t bit_
     pwmStart(group.pwm_drv, &group.pwm_cfg);
     group.pwm_started = true;
 
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
     /*
      * Enable the update DMA request.  On STM32 this came in through
      * pwm_cfg.dier; here it has to be set after pwmStart() because
@@ -1652,6 +1658,13 @@ void RCOutput::dma_allocate(Shared_DMA *ctx)
         if (group.dma_handle == ctx && group.dma == nullptr) {
             chSysLock();
             group.dma = dmaStreamAllocI(group.dma_up_stream_id, 10, dma_up_irq_callback, &group);
+#if defined(CH32H417) && STM32_DMA_SUPPORTS_DMAMUX
+            if (group.dma == nullptr) {
+                // the requested stream may be permanently held by another
+                // driver (I2C etc); with DMAMUX any free stream works
+                group.dma = dmaStreamAllocI(CH32_DMA_STREAM_ID_ANY, 10, dma_up_irq_callback, &group);
+            }
+#endif
 #if defined(STM32F1)
             if (group.pwm_started && group.dma_handle->is_shared()) {
                 /* Timer configured and started.*/
@@ -1957,7 +1970,7 @@ void RCOutput::send_pulses_DMAR(pwm_group &group, uint32_t buffer_length)
                      STM32_DMA_CR_TEIE | STM32_DMA_CR_TCIE);
 
     // setup for burst strided transfers into the timers 4 CCR registers
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
     // CH32: CH1CVR..CH4CVR sit at consecutive 32-bit word offsets, the same
     // unit the DMACFGR.DBA base address is counted in
     const uint8_t ccr_ofs = offsetof(stm32_tim_t, CH1CVR_32)/4;
@@ -2047,7 +2060,7 @@ void RCOutput::dma_cancel(pwm_group& group)
     // since we are cancelling early they need to be reset to avoid infinite pulses
     for (uint8_t i = 0; i < 4; i++) {
         if (group.chan[i] != CHAN_DISABLED) {
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
             // CH32 has no CCR array: CH1CVR_32..CH4CVR_32 are consecutive
             // 32-bit registers, matching the DMA burst layout
             volatile uint32_t *ccr = &group.pwm_drv->tim->CH1CVR_32;
@@ -2422,7 +2435,7 @@ uint16_t RCOutput::serial_read_bytes(uint8_t *buf, uint16_t len, uint32_t timeou
     pwm_group &group = *serial_group;
     const ioline_t line = group.pal_lines[group.serial.chan];
     // keep speed low to avoid noise when switching between input and output
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
     /*
      * WCH GPIOv1 has no separate speed/otype/pupdr fields: a pulled-up
      * input is a single mode value, and the pin's speed stays whatever the
@@ -2999,7 +3012,7 @@ void RCOutput::timer_info(ExpandingString &str)
 
 #endif // HAL_USE_PWM
 
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
 // end of the file-local CH32 TIM member-name aliases
 #undef DMAR
 #undef DCR
@@ -3011,4 +3024,4 @@ void RCOutput::timer_info(ExpandingString &str)
 #undef ARR
 #undef CCMR1
 #undef CCMR2
-#endif // __CH32H417_H
+#endif // CH32H417

@@ -28,7 +28,7 @@
 extern AP_IOMCU iomcu;
 #endif
 
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
 /*
  * CH32 TIM register-name aliases for the STM32-style member accesses in
  * this file (F1-style renames, same bit layouts).  File-local: all are
@@ -46,7 +46,7 @@ extern AP_IOMCU iomcu;
 #define ARR  ATRLR
 #define CCMR1 CHCTLR1
 #define CCMR2 CHCTLR2
-#endif // __CH32H417_H
+#endif // CH32H417
 
 #if defined(IOMCU_FW)
 #undef INTERNAL_ERROR
@@ -228,6 +228,12 @@ void RCOutput::bdshot_ic_dma_allocate(Shared_DMA *ctx)
             if (group.bdshot.ic_dma_handle[icuch] == ctx && group.bdshot.ic_dma[icuch] == nullptr) {
                 chSysLock();
                 group.bdshot.ic_dma[icuch] = dmaStreamAllocI(group.dma_ch[icuch].stream_id, 10, bdshot_dma_ic_irq_callback, &group);
+#if defined(CH32H417) && STM32_DMA_SUPPORTS_DMAMUX
+                if (group.bdshot.ic_dma[icuch] == nullptr) {
+                    // with DMAMUX any free stream can carry the request
+                    group.bdshot.ic_dma[icuch] = dmaStreamAllocI(CH32_DMA_STREAM_ID_ANY, 10, bdshot_dma_ic_irq_callback, &group);
+                }
+#endif
 #if STM32_DMA_SUPPORTS_DMAMUX
                 if (group.bdshot.ic_dma[icuch]) {
                     dmaSetRequestSource(group.bdshot.ic_dma[icuch], group.dma_ch[icuch].channel);
@@ -394,7 +400,7 @@ void RCOutput::bdshot_receive_pulses_DMAR(pwm_group* group)
 
     // setup for transfers. 0x0D is the register
     // address offset of the CCR registers in the timer peripheral
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
     // CH32: CH1CVR..CH4CVR sit at consecutive 32-bit word offsets, the same
     // unit the DMACFGR.DBA base address is counted in
     const uint8_t ccr_ofs = offsetof(stm32_tim_t, CH1CVR_32)/4 + group->bdshot.telem_tim_ch[curr_ch];
@@ -913,7 +919,7 @@ uint32_t RCOutput::read_erpm(uint16_t* erpm, uint8_t len)
 
 #endif // HAL_WITH_BIDIR_DSHOT
 
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
 // end of the file-local CH32 TIM member-name aliases
 #undef DMAR
 #undef DCR
@@ -925,4 +931,4 @@ uint32_t RCOutput::read_erpm(uint16_t* erpm, uint8_t len)
 #undef ARR
 #undef CCMR1
 #undef CCMR2
-#endif // __CH32H417_H
+#endif // CH32H417
