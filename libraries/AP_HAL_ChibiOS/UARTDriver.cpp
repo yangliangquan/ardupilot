@@ -61,7 +61,7 @@ static bool usb_driver_active(SerialUSBDriver *driver)
 #endif
 #endif
 
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
 /*
  * CH32 USART register-name aliases for the STM32-style member accesses in
  * this file (usart->CR1/CR2/CR3/SR/DR).  The CH32H417 USART is the F1
@@ -76,7 +76,7 @@ static bool usb_driver_active(SerialUSBDriver *driver)
 #define CR3 CTLR3
 #define SR  STATR
 #define DR  DATAR
-#endif // __CH32H417_H
+#endif // CH32H417
 
 #if HAL_WITH_IO_MCU
 extern ChibiOS::UARTDriver uart_io;
@@ -441,11 +441,25 @@ void UARTDriver::_begin(uint32_t b, uint16_t rxS, uint16_t txS)
                                             12,  //IRQ Priority
                                             (stm32_dmaisr_t)rxbuff_full_irq,
                                             (void *)this);
+#if defined(CH32H417) && STM32_DMA_SUPPORTS_DMAMUX
+                    if (rxdma == nullptr) {
+                        // DMAMUX makes streams fungible; the peripheral
+                        // request is routed by dmaSetRequestSource() below.
+                        rxdma = dmaStreamAllocI(CH32_DMA_STREAM_ID_ANY,
+                                                12,  //IRQ Priority
+                                                (stm32_dmaisr_t)rxbuff_full_irq,
+                                                (void *)this);
+                    }
+#endif
                     osalDbgAssert(rxdma, "stream alloc failed");
+                    if (rxdma == nullptr) {
+                        // fall back to the non-DMA RX path
+                        rx_dma_enabled = false;
+                    }
                     chSysUnlock();
 #if defined(STM32F7) || defined(STM32H7) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
                     dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->RDR);
-#elif defined(__CH32H417_H)
+#elif defined(CH32H417)
                     dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->DATAR);
 #else
                     dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->DR);
@@ -571,7 +585,25 @@ void UARTDriver::dma_tx_allocate(Shared_DMA *ctx)
                             12,  //IRQ Priority
                             (stm32_dmaisr_t)tx_complete,
                             (void *)this);
+#if defined(CH32H417) && STM32_DMA_SUPPORTS_DMAMUX
+    if (txdma == nullptr) {
+        // The requested stream is held by a non-Shared_DMA owner (e.g. an
+        // I2C driver that allocates once at init).  With DMAMUX any free
+        // stream works: dmaSetRequestSource() below routes the request.
+        txdma = dmaStreamAllocI(CH32_DMA_STREAM_ID_ANY,
+                                12,  //IRQ Priority
+                                (stm32_dmaisr_t)tx_complete,
+                                (void *)this);
+    }
+#endif
     osalDbgAssert(txdma, "stream alloc failed");
+    if (txdma == nullptr) {
+        // Fall back to the non-DMA interrupt TX path rather than ever
+        // dereferencing a null stream descriptor.
+        tx_dma_enabled = false;
+        chSysUnlock();
+        return;
+    }
     chSysUnlock();
 #if defined(STM32F7) || defined(STM32H7) || defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
     dmaStreamSetPeripheral(txdma, &((SerialDriver*)sdef.serial)->usart->TDR);
@@ -605,6 +637,9 @@ void UARTDriver::dma_rx_enable(void)
 
 void UARTDriver::dma_tx_deallocate(Shared_DMA *ctx)
 {
+    if (txdma == nullptr) {
+        return;
+    }
     chSysLock();
     dmaStreamFreeI(txdma);
     txdma = nullptr;
@@ -626,7 +661,7 @@ void UARTDriver::rx_irq_cb(void* self)
     //disable dma, triggering DMA transfer complete interrupt
     dmaStreamDisable(uart_drv->rxdma);
     uart_drv->rxdma->channel->CCR &= ~STM32_DMA_CR_EN;
-#elif defined(__CH32H417_H)
+#elif defined(CH32H417)
     //disable dma, triggering DMA transfer complete interrupt
     //ch32DmaStreamDisable() clears CFGR.EN/TCIE/HTIE/TEIE and the INTFR flags
     dmaStreamDisable(uart_drv->rxdma);
@@ -891,6 +926,11 @@ void UARTDriver::write_pending_bytes_DMA(uint32_t n)
 {
     // sanity check
     if (!dma_handle) {
+        return;
+    }
+    // The TX stream may have failed to allocate (Shared_DMA co-holder with
+    // a permanent allocation); never dereference a null descriptor.
+    if (txdma == nullptr) {
         return;
     }
 
@@ -1201,7 +1241,7 @@ void UARTDriver::_rx_timer_tick(void)
         //let's handle that here so that we can continue receiving
 #if defined(STM32F3) || defined(STM32G4) || defined(STM32L4) || defined(STM32L4PLUS)
         bool enabled = (rxdma->channel->CCR & STM32_DMA_CR_EN);
-#elif defined(__CH32H417_H)
+#elif defined(CH32H417)
         bool enabled = (rxdma->channel->CFGR & STM32_DMA_CR_EN);
 #else
         bool enabled = (rxdma->stream->CR & STM32_DMA_CR_EN);
@@ -1928,12 +1968,12 @@ void UARTDriver::usb_debug_lock(bool lock)
 }
 #endif // AP_USB_DEBUG_ENABLED
 
-#if defined(__CH32H417_H)
+#if defined(CH32H417)
 #undef CR1
 #undef CR2
 #undef CR3
 #undef SR
 #undef DR
-#endif // __CH32H417_H
+#endif // CH32H417
 
 #endif // CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS && AP_HAL_UARTDRIVER_ENABLED

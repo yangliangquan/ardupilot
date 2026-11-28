@@ -116,15 +116,12 @@ extern "C"
 #endif
 
 #if defined(CH32H417)
-/*
-  The legacy fault handlers below are Cortex-M specific: they read the
-  stacked exception frame through PSP/IPSR, decode SCB->CFSR/HFSR/MMFAR and
-  trip on Cortex-M exception numbers.  None of that exists on the QingKe V5F
-  core, which traps through mtvec/ECLIC instead.  The CH32H417 board also has
-  no crash dump backend (HAL_NO_FLASH_SUPPORT, no RTC backup registers), so
-  the block is compiled out rather than ported bit for bit; a real RISC-V
-  trap handler is a separate piece of porting work.
- */
+
+void HardFault_Handler(void);
+__attribute__((naked, used)) void HardFault_Handler(void)
+{
+    while(1);
+}
 #elif !AP_CRASHDUMP_ENABLED
 // do legacy hardfault handling
 void HardFault_Handler(void);
